@@ -6,9 +6,9 @@ Play as Lyra and build Troy in **two minutes**: gather supplies, complete missio
 
 A 3D browser game built for the **{Tech: Europe} AI Gaming Hack in Paris**, combining city building, survival combat, and companions you can talk to.
 
-🎮 [Hosted demo — access required](https://echo-shift-paris.yassineagourram13.chatgpt.site) · [Run locally](#-running-the-project) · [Full gameplay guide](docs/GAMEPLAY.md)
+🎮 [Play TROY 120](https://troy-120.vercel.app) · [Run locally](#-running-the-project) · [Full gameplay guide](docs/GAMEPLAY.md)
 
-The hosted demo currently requires access. You can also run the game locally using the instructions below.
+Open the game in your browser and start playing—no account required. Xbox controllers and keyboard controls are supported.
 
 <p align="center">
   <img src="public/troy/cover.jpg" alt="Troy cover artwork showing an ancient coastal city" width="900" />
@@ -40,8 +40,8 @@ Building choices, conversations, and pause menus stop the clock. If the micropho
 ## 🧰 Technologies
 
 - **Game and interface:** `Three.js`, `React 19`, `TypeScript`, `Tailwind CSS`
-- **Application and hosting:** `vinext`, `Vite`, `Cloudflare Workers`, `Sites`
-- **Campaign storage:** `Cloudflare D1` / `SQLite`, `Drizzle ORM`
+- **Application and hosting:** `Next.js`, `Vercel`; `vinext`, `Vite`, and `Sites` for the original Cloudflare build
+- **Campaign storage:** private `Vercel Blob` on Vercel; `Cloudflare D1` / `SQLite` and `Drizzle ORM` on Sites
 - **AI conversations and artwork:** `Google Gemini`
 - **Music and voices:** `Google Lyria`, `Gradium`
 - **Browser input:** `Gamepad API`, browser speech recognition
@@ -113,7 +113,7 @@ With **0:30 remaining**, the boss arrives. Defeat him before **0:00** and stay a
 | React interface | Start and pause menus, controls, HUD, dialogue, building choices |
 | Three.js game engine | City generation, movement, combat, companions, animations |
 | Server API routes | Dialogue validation, voice requests, campaign saves |
-| Cloudflare D1 | XP, ranks, weapon unlocks, scores, and city progression |
+| Private Vercel Blob / Cloudflare D1 | XP, ranks, weapon unlocks, scores, and city progression, using the storage for each host |
 | Bundled media | Cover art, portraits, textures, music, and opening narration |
 
 ## 🔌 API Overview
@@ -198,6 +198,7 @@ Built for the **{Tech: Europe} AI Gaming Hack**, co-hosted by **Google DeepMind*
 - [Sponsor integrations](docs/SPONSORS.md) — provider roles and current integration status
 - [Asset provenance](docs/ASSETS.md) — generated media and generation scripts
 - [Opening briefing manifest](public/troy/briefing-manifest.json) — narration text and generation details
+- [Vercel deployment guide](docs/DEPLOYMENT.md) — hosting, private campaign storage, and release checks
 
 ## 👥 Contributors
 

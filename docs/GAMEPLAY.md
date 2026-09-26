@@ -2,6 +2,8 @@
 
 [Back to the README](../README.md)
 
+**Hosting note:** The Vercel release uses private Vercel Blob campaign storage with atomic conditional saves and run receipts. The original Sites build uses D1 as described below. Both retain the same gameplay rewards and anonymous player cookie behavior; campaigns do not transfer automatically between the two domains. See the [deployment guide](DEPLOYMENT.md).
+
 **Build a city. Defy the odds. Trust no horse.** A 3D city-building survival campaign. Explore larger cities, complete changing contracts, fight escalating sieges, and build as much as possible in two minutes. Defeat the Warlord and survive to advance to a new city; earn permanent XP even in defeat.
 
 Three.js powers the city, animated characters, three equipable weapons, cannon projectiles, companion actions, ocean, lighting, and four horse finales. Gemini supplies contextual conversations and generated artwork; Lyria supplies bundled music; Gradium supplies narration and live speech. The game and bundled assets work without provider keys, with labeled local advice when live dialogue is unavailable.

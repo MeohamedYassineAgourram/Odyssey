@@ -18,11 +18,13 @@ let api;
 try {
   Module._load = function (id, parent, isMain) {
     if (id === 'cloudflare:workers') return { env: runtime };
+    if (id === '@vercel/blob') return originalLoad.call(this, require.resolve(id), parent, isMain);
     if (id.startsWith('drizzle-orm')) return originalLoad.call(this, require.resolve(id), parent, isMain);
     return originalLoad.call(this, id, parent, isMain);
   };
   api = require(join(compiled, 'app/api/troy/progress/route.js'));
 } finally { Module._load = originalLoad; }
+const { validatedRun } = require(join(compiled, 'app/lib/troy-progress-validation.js'));
 const { EMPTY_PROFILE, RANKS, getRank, getRankLadder, calculateXP, applyRunResult } = require(join(compiled, 'app/troy/progression.js'));
 const { createRun, advanceRun, buildAt, recordKill, gather, discoverLandmark, takeDamage, collectWeapon, defeatBoss } = require(join(compiled, 'app/troy/rules.js'));
 const { initializeProgress, readProgress, saveRun } = require(join(compiled, 'db/troy-progress.js'));
@@ -257,8 +259,8 @@ test('existing profiles upgrade safely and collected weapons persist through def
     assert.deepEqual(replay.profile.weapons, ['sword', 'bow', 'hammer']);
     assert.equal(replay.profile.runs, 1);
     const oldClient = { ...completed(), weapons: undefined, weapon: undefined };
-    assert.deepEqual(api.validatedRun(oldClient).weapons, ['sword']);
-    const clear = await saveRun(db, 'returning-player', randomUUID(), api.validatedRun(oldClient));
+    assert.deepEqual(validatedRun(oldClient).weapons, ['sword']);
+    const clear = await saveRun(db, 'returning-player', randomUUID(), validatedRun(oldClient));
     assert.deepEqual(clear.profile.weapons, ['sword', 'bow', 'hammer'], 'old clients cannot erase already collected gear');
     const pure = applyRunResult(EMPTY_PROFILE, run);
     assert.deepEqual(pure.weapons, ['sword', 'bow', 'hammer']);
@@ -272,7 +274,7 @@ test('boss deadline failure saves earned XP and weapons once without clearing th
     assert.equal(deadline.boss, 'active');
     assert.equal(deadline.outcome, 'fallen');
     assert.equal(deadline.timeLeft, 0);
-    assert.deepEqual(api.validatedRun(deadline), deadline);
+    assert.deepEqual(validatedRun(deadline), deadline);
     const input = { runId: randomUUID(), state: deadline }, headers = { 'oai-authenticated-user-id': 'deadline-player' };
     const response = await api.POST(request(input, headers));
     assert.equal(response.status, 200);
@@ -301,7 +303,7 @@ test('legacy clients with no boss field preserve old zero-kill victories and unc
   const db = new SQLiteD1(); runtime.DB = db;
   try {
     const legacy = { ...createRun(4), boss: undefined, phase: 'ended', outcome: 'legend', timeLeft: 0, finaleTime: 9, survivalScore: 200, score: 200 };
-    const normalized = api.validatedRun(legacy);
+    const normalized = validatedRun(legacy);
     assert.equal(normalized.boss, 'defeated');
     assert.equal(normalized.kills, 0);
     assert.equal(normalized.combatScore, 0);
@@ -315,7 +317,7 @@ test('legacy clients with no boss field preserve old zero-kill victories and unc
     assert.equal(saved.xpAwarded.combat, 0);
     assert.deepEqual(await (await api.POST(request(input, headers))).json(), saved);
     const legacyFallen = { ...takeDamage(createRun(4), 100), boss: undefined };
-    assert.equal(api.validatedRun(legacyFallen).boss, 'waiting');
-    assert.equal(api.validatedRun({ ...legacyFallen, timeLeft: 20 }).boss, 'active');
+    assert.equal(validatedRun(legacyFallen).boss, 'waiting');
+    assert.equal(validatedRun({ ...legacyFallen, timeLeft: 20 }).boss, 'active');
   } finally { runtime.DB = undefined; db.sql.close(); }
 });

@@ -1,3 +1,5 @@
+import { serverEnv } from './server-env';
+
 export class RequestError extends Error {
   constructor(message: string, readonly status = 400) {
     super(message);
@@ -32,9 +34,11 @@ export function guardRequest(request: Request, scope: string, limit = 24): void 
   }
 
   const now = Date.now();
-  // CF-Connecting-IP is supplied by Cloudflare in production. Do not trust
-  // client-provided X-Forwarded-For for this guard.
-  const address = request.headers.get("cf-connecting-ip") || "local";
+  // Both platforms overwrite their own client-IP header. Never trust a generic
+  // incoming X-Forwarded-For header or use the other platform's header.
+  const address = serverEnv('VERCEL')
+    ? request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() || 'local'
+    : request.headers.get('cf-connecting-ip') || 'local';
   const key = `${scope}:${address}`;
   const entry = requests.get(key);
   if (entry && entry.reset > now) {
