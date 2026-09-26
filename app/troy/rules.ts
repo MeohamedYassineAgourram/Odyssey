@@ -1,4 +1,4 @@
-import { BLUEPRINTS, ENDINGS, FINALE_DURATION, MISSIONS, RUN_DURATION, WEAPONS } from './config';
+import { BLUEPRINTS, BOSS_ARRIVAL, ENDINGS, FINALE_DURATION, MISSIONS, RUN_DURATION, WEAPONS } from './config';
 import { createCityMap } from './maps';
 import type { BuildingKind, EndingKind, Material, Materials, Mission, MissionProgress, RunState, WeaponKind } from './types';
 
@@ -53,7 +53,7 @@ export function createRun(seed: number, previousEnding?: EndingKind, stage = 1, 
     weapons: ['sword', ...WEAPONS.filter(item => item.id !== 'sword' && Array.isArray(weapons) && weapons.includes(item.id)).map(item => item.id)], weapon: 'sword',
     explored: [], expeditionScore: 0, constructionScore: 0, missionScore: 0, combatScore: 0, survivalScore: 0, score: 0,
     ending: endings[Math.floor(hash / 0x100000000 * endings.length)],
-    finaleTime: 0, productionTime: 0, outcome: 'none',
+    finaleTime: 0, productionTime: 0, outcome: 'none', boss: 'waiting',
   };
 }
 
@@ -66,7 +66,8 @@ export function advanceRun(state: RunState, dt: number): RunState {
     return score({ ...state, phase: 'ended', finaleTime, outcome: 'legend', survivalScore: 200 });
   }
   const remaining = Math.max(0, state.timeLeft - elapsed);
-  const timeLeft = remaining < 1e-9 ? 0 : remaining;
+  const timeLeft = remaining < 1e-9 ? 0 : Math.abs(remaining - BOSS_ARRIVAL) < 1e-9 ? BOSS_ARRIVAL : remaining;
+  const boss = state.boss === 'waiting' && timeLeft <= BOSS_ARRIVAL ? 'active' : state.boss;
   const played = state.timeLeft - timeLeft;
   const before = RUN_DURATION - state.timeLeft;
   const after = RUN_DURATION - timeLeft;
@@ -79,9 +80,14 @@ export function advanceRun(state: RunState, dt: number): RunState {
     if (building.kind === 'farm') wood = add(wood, cycles);
     if (building.kind === 'temple') health = Math.min(100, health + cycles * 4);
   }
+  if (timeLeft === 0 && boss !== 'defeated') {
+    return score({ ...state, timeLeft, boss: 'active', health: 0, materials: { ...state.materials, wood },
+      productionTime: (state.productionTime + played) % PRODUCTION_INTERVAL,
+      phase: 'ended', outcome: 'fallen', finaleTime: 0, survivalScore: 0 });
+  }
   // Stop at the phase boundary: a background-tab jump must still show the full finale.
   return {
-    ...state, timeLeft, health, materials: { ...state.materials, wood },
+    ...state, timeLeft, health, boss, materials: { ...state.materials, wood },
     productionTime: (state.productionTime + played) % PRODUCTION_INTERVAL,
     phase: timeLeft === 0 ? 'disaster' : 'playing', finaleTime: 0,
   };
@@ -126,6 +132,11 @@ export function gather(state: RunState, resource: Material, amount: number): Run
 export function recordKill(state: RunState): RunState {
   if (state.phase !== 'playing') return state;
   return rewardMissions({ ...state, kills: add(state.kills, 1), combatScore: add(state.combatScore, 35) });
+}
+
+export function defeatBoss(state: RunState): RunState {
+  if (state.phase !== 'playing' || state.boss !== 'active' || state.timeLeft <= 0 || state.timeLeft > BOSS_ARRIVAL) return state;
+  return recordKill({ ...state, boss: 'defeated' });
 }
 
 export function collectWeapon(state: RunState, kind: WeaponKind): RunState {

@@ -24,7 +24,7 @@ try {
   api = require(join(compiled, 'app/api/troy/progress/route.js'));
 } finally { Module._load = originalLoad; }
 const { EMPTY_PROFILE, RANKS, getRank, getRankLadder, calculateXP, applyRunResult } = require(join(compiled, 'app/troy/progression.js'));
-const { createRun, advanceRun, buildAt, recordKill, gather, discoverLandmark, takeDamage, collectWeapon } = require(join(compiled, 'app/troy/rules.js'));
+const { createRun, advanceRun, buildAt, recordKill, gather, discoverLandmark, takeDamage, collectWeapon, defeatBoss } = require(join(compiled, 'app/troy/rules.js'));
 const { initializeProgress, readProgress, saveRun } = require(join(compiled, 'db/troy-progress.js'));
 
 // The adapter executes the production prepared SQL against real SQLite. Its batch
@@ -62,21 +62,21 @@ const completed = (stage = 1, survived = true) => {
   for (const [index, kind] of ['house', 'farm', 'tower', 'temple'].entries()) state = buildAt(state, `p${index + 1}`, kind);
   for (let i = 0; i < 8; i++) { state = recordKill(state); state = gather(state, 'wood', 3); }
   state = discoverLandmark(state, 'landmark-1');
-  return survived ? advanceRun(advanceRun(state, 120), 9) : takeDamage(state, 100);
+  return survived ? advanceRun(advanceRun(defeatBoss(advanceRun(state, 90)), 30), 9) : takeDamage(state, 100);
 };
 
 test('XP includes all activity, defeats keep earned XP, and only survival advances the city', () => {
   const legend = completed(), fallen = completed(1, false), earned = calculateXP(legend);
   assert.deepEqual(calculateXP(createRun(1)), { buildings: 0, combat: 0, contracts: 0, exploration: 0, survival: 0, total: 0 });
   assert.equal(earned.buildings, 4 * 15);
-  assert.equal(earned.combat, 8 * 8);
+  assert.equal(earned.combat, 9 * 8);
   assert.equal(earned.contracts, legend.completedMissions.length * 25);
   assert.equal(earned.exploration, 35);
   assert.equal(earned.survival, 150);
   assert.equal(earned.total, earned.buildings + earned.combat + earned.contracts + earned.exploration + earned.survival);
   const initial = Object.freeze({ ...EMPTY_PROFILE, endings: Object.freeze([]) });
   const defeat = applyRunResult(initial, fallen);
-  assert.equal(defeat.xp, earned.total - 150);
+  assert.equal(defeat.xp, earned.total - 150 - 8);
   assert.equal(defeat.stage, 1);
   assert.equal(defeat.runs, 1);
   assert.equal(defeat.clears, 0);
@@ -263,4 +263,59 @@ test('existing profiles upgrade safely and collected weapons persist through def
     const pure = applyRunResult(EMPTY_PROFILE, run);
     assert.deepEqual(pure.weapons, ['sword', 'bow', 'hammer']);
   } finally { db.sql.close(); }
+});
+
+test('boss deadline failure saves earned XP and weapons once without clearing the city', async () => {
+  const db = new SQLiteD1(); runtime.DB = db;
+  try {
+    const deadline = advanceRun(recordKill(collectWeapon(createRun(42), 'bow')), 120);
+    assert.equal(deadline.boss, 'active');
+    assert.equal(deadline.outcome, 'fallen');
+    assert.equal(deadline.timeLeft, 0);
+    assert.deepEqual(api.validatedRun(deadline), deadline);
+    const input = { runId: randomUUID(), state: deadline }, headers = { 'oai-authenticated-user-id': 'deadline-player' };
+    const response = await api.POST(request(input, headers));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.profile.stage, 1);
+    assert.equal(result.profile.clears, 0);
+    assert.equal(result.profile.runs, 1);
+    assert.equal(result.profile.total, 0);
+    assert.equal(result.profile.xp, 8);
+    assert.equal(result.xpAwarded.survival, 0);
+    assert.deepEqual(result.profile.weapons, ['sword', 'bow']);
+    assert.deepEqual(await (await api.POST(request(input, headers))).json(), result);
+    const clear = completed();
+    for (const invalid of [
+      { ...clear, boss: 'active' }, { ...clear, boss: 'waiting' }, { ...clear, boss: 'imaginary' },
+      { ...clear, boss: 'defeated', kills: 0 },
+      { ...deadline, boss: 'defeated' }, { ...deadline, boss: 'waiting' },
+      { ...deadline, boss: 'active', timeLeft: 31 },
+      { ...deadline, boss: 'waiting', timeLeft: 30 },
+      { ...completed(1, false), boss: 'defeated' },
+    ]) assert.equal((await api.POST(request({ runId: randomUUID(), state: invalid }, headers))).status, 400);
+  } finally { runtime.DB = undefined; db.sql.close(); }
+});
+
+test('legacy clients with no boss field preserve old zero-kill victories and unchanged receipt rewards', async () => {
+  const db = new SQLiteD1(); runtime.DB = db;
+  try {
+    const legacy = { ...createRun(4), boss: undefined, phase: 'ended', outcome: 'legend', timeLeft: 0, finaleTime: 9, survivalScore: 200, score: 200 };
+    const normalized = api.validatedRun(legacy);
+    assert.equal(normalized.boss, 'defeated');
+    assert.equal(normalized.kills, 0);
+    assert.equal(normalized.combatScore, 0);
+    const input = { runId: randomUUID(), state: legacy }, headers = { 'oai-authenticated-user-id': 'legacy-boss-player' };
+    const first = await api.POST(request(input, headers));
+    assert.equal(first.status, 200);
+    const saved = await first.json();
+    assert.equal(saved.profile.stage, 2);
+    assert.equal(saved.profile.xp, 150);
+    assert.equal(saved.profile.total, 200);
+    assert.equal(saved.xpAwarded.combat, 0);
+    assert.deepEqual(await (await api.POST(request(input, headers))).json(), saved);
+    const legacyFallen = { ...takeDamage(createRun(4), 100), boss: undefined };
+    assert.equal(api.validatedRun(legacyFallen).boss, 'waiting');
+    assert.equal(api.validatedRun({ ...legacyFallen, timeLeft: 20 }).boss, 'active');
+  } finally { runtime.DB = undefined; db.sql.close(); }
 });

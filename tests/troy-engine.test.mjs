@@ -12,13 +12,13 @@ const sourceCache = new Map();
 
 // Exercise the actual engine, geometry, rules and world. Only browser/WebGL I/O is
 // stubbed; advancing frames still executes real movement, AI and collision code.
-function fixture(stage = 1, weapons = ['sword']) {
-  let now = 0, frame, snapshot, scene, world, updates = 0, disposedWorlds = 0, renders = 0, buildPlot = null;
+function fixture(stage = 1, weapons = ['sword'], seedBase = 123456) {
+  let now = 0, frame, snapshot, scene, camera, world, updates = 0, disposedWorlds = 0, renders = 0, buildPlot = null;
   const events = [], modules = new Map();
   class Renderer {
     shadowMap = {}; capabilities = { getMaxAnisotropy: () => 1 };
     setPixelRatio() {} setSize() {} dispose() {}
-    render(value) { scene = value; renders++; }
+    render(value, view) { scene = value; camera = view; renders++; }
   }
   class TextureLoader { load() { return new THREE.Texture(); } }
   const three = { ...THREE, WebGLRenderer: Renderer, TextureLoader };
@@ -34,7 +34,7 @@ function fixture(stage = 1, weapons = ['sword']) {
     const localRequire = name => name === 'three' ? three : name.startsWith('.') ? load(path.resolve(path.dirname(filename), `${name}.ts`)) : require(name);
     vm.runInNewContext(compiled, {
       module: loadedModule, exports: loadedModule.exports, require: localRequire, console,
-      Date: class extends Date { static now() { return 123456 + Math.floor(now); } },
+      Date: class extends Date { static now() { return seedBase + Math.floor(now); } },
       Math: Object.assign(Object.create(Math), { random: () => .371 }),
       window: { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {} },
       document: { hidden: false, addEventListener() {}, removeEventListener() {} },
@@ -60,7 +60,7 @@ function fixture(stage = 1, weapons = ['sword']) {
   jump(.01);
   return {
     engine, api, events, jump, advance,
-    get state() { return snapshot; }, get scene() { return scene; }, get world() { return world; },
+    get state() { return snapshot; }, get scene() { return scene; }, get world() { return world; }, get camera() { return camera; },
     get buildPlot() { return buildPlot; },
     get map() { return maps.createCityMap(snapshot.stage, snapshot.seed); },
     get updates() { return updates; }, get disposedWorlds() { return disposedWorlds; }, get renders() { return renders; },
@@ -74,8 +74,8 @@ test('difficulty remains bounded and collision supports large maps and swept arr
   const f = fixture();
   try {
     const first = f.api.getRaidDifficulty(1), last = f.api.getRaidDifficulty(10000);
-    assert.equal(first.firstRaid, 18); assert.equal(first.interval, 20); assert.equal(first.aliveCap, 14);
-    assert.equal(last.interval, 10); assert.equal(last.aliveCap, 18); assert.equal(last.hpBonus, 2);
+    assert.equal(first.firstRaid, 12); assert.equal(first.interval, 14); assert.equal(first.aliveCap, 24); assert.equal(first.bossHealth, 36);
+    assert.equal(last.interval, 8); assert.equal(last.aliveCap, 32); assert.equal(last.hpBonus, 4); assert.equal(last.bossHealth, 80);
     assert.equal(JSON.stringify(last), JSON.stringify(f.api.getRaidDifficulty(12)));
     assert.equal(f.api.distanceToSegment(0, 0, -4, 0, 4, 0), 0, 'fast arrow crossing is detected');
     assert.equal(f.api.distanceToSegment(0, 3, -4, 0, 4, 0), 3, 'sideways dodge clears the trajectory');
@@ -89,7 +89,7 @@ test('new stages rebuild the correct city, discover treasure once, and release t
   const f = fixture(3);
   try {
     assert.equal(f.state.stage, 3); assert.equal(f.map.theme, 'forest');
-    f.engine.start(1); assert.equal(f.state.nextRaid, 18); assert.equal(f.state.stage, 1);
+    f.engine.start(1); assert.equal(f.state.nextRaid, 12); assert.equal(f.state.stage, 1);
     const plot = f.map.plots[0]; f.engine.selectBuilding('temple'); f.teleport(plot.x, plot.z); f.engine.interact();
     assert.equal(f.buildPlot, plot.id, 'an unaffordable selected design still opens the dashboard'); assert.equal(f.state.paused, true);
     assert.equal(f.engine.buildAtPlot(plot.id, 'temple'), false); assert.equal(f.engine.buildAtPlot(f.map.plots[20].id, 'house'), false, 'remote construction is rejected');
@@ -110,14 +110,18 @@ test('new stages rebuild the correct city, discover treasure once, and release t
   } finally { f.engine.destroy(); }
 });
 
-test('falling raiders leave real weapon pickups and bow damage happens only on impact', () => {
+test('only seeded lucky deaths leave loot, corpses fade, and bow damage happens on impact', () => {
   const f = fixture();
   try {
-    f.engine.start(1); f.jump(18.01); for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
-    const archer = f.raiders.find(enemy => enemy.userData.enemyKind === 'archer'); archer.position.set(f.hero.position.x + 1, 0, f.hero.position.z);
-    f.engine.attack(); f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 1);
+    f.engine.start(1); f.jump(12.01); for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+    const archers = f.raiders.filter(enemy => enemy.userData.enemyKind === 'archer');
+    const killWithSword = enemy => {
+      for (let hit = 0; hit < 4; hit++) { if (hit || f.state.kills) f.advance(.4); enemy.position.set(f.hero.position.x + 1, 0, f.hero.position.z); f.engine.attack(); }
+    };
+    killWithSword(archers[0]); assert.equal(f.state.kills, 1); assert.equal(f.scene.children.filter(object => object.userData.weaponKind).length, 0, 'first seeded roll misses');
+    killWithSword(archers[1]); assert.equal(f.state.kills, 2);
     const corpse = f.scene.getObjectByName('fallen-archer'); assert.ok(corpse, 'defeated raider remains visible during its fall');
-    const drop = f.scene.children.find(object => object.userData.weaponKind === 'bow'); assert.ok(drop); assert.equal(f.state.weapons.length, 1);
+    const drop = f.scene.children.find(object => object.userData.weaponKind === 'bow'); assert.ok(drop, 'second seeded roll drops the matching bow'); assert.equal(f.state.weapons.length, 1);
     f.advance(.3); assert.ok(Math.abs(corpse.rotation.z) > .2); assert.ok(corpse.parent, 'death is animated instead of an immediate disappearance');
     f.teleport(drop.position.x, drop.position.z); assert.equal(f.state.nearest.kind, 'loot'); f.engine.interact();
     assert.equal(f.state.weapon, 'bow'); assert.equal(f.state.weapons.length, 2); assert.ok(f.hero.getObjectByName('Equipped bow').visible);
@@ -125,24 +129,27 @@ test('falling raiders leave real weapon pickups and bow damage happens only on i
     const skirmisher = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); skirmisher.position.set(f.hero.position.x + 8, 0, f.hero.position.z);
     const before = f.state.kills; f.engine.attack(); assert.equal(f.state.kills, before); assert.ok(f.scene.getObjectByName('friendly-arrow'));
     f.advance(.06); assert.equal(f.state.kills, before, 'a launched bow shot does not cause instant damage');
-    f.advance(.4); assert.equal(f.state.kills, before + 1);
-    const duplicate = f.scene.children.find(object => object.userData.weaponKind === 'sword'); f.teleport(duplicate.position.x, duplicate.position.z); f.engine.interact(); assert.equal(f.state.weapons.length, 2, 'duplicate drops do not consume another inventory slot');
+    f.advance(.6); assert.equal(f.state.kills, before, 'four HP withstands one two-damage arrow');
+    skirmisher.position.set(f.hero.position.x + 8, 0, f.hero.position.z); f.engine.attack(); assert.equal(f.state.kills, before); f.advance(.4); assert.equal(f.state.kills, before + 1);
     f.engine.start(2, ['sword', 'bow', 'hammer']); f.engine.cycleWeapon(1); assert.equal(f.state.weapon, 'bow'); f.engine.cycleWeapon(1); assert.equal(f.state.weapon, 'hammer');
     assert.equal(f.state.weapons.length, 3); f.engine.start(3); assert.equal(f.state.weapons.length, 3, 'carried unlocks survive the next expedition');
   } finally { f.engine.destroy(); }
 });
 
-test('hammer has a slower powerful area strike and knocks surviving brutes back', () => {
+test('hammer has a slower area strike and knocks tougher surviving raiders back', () => {
   const f = fixture(1, ['sword', 'hammer']);
   try {
-    f.engine.start(1); f.engine.selectWeapon('hammer'); f.jump(18.01);
+    f.engine.start(1); f.engine.selectWeapon('hammer'); f.jump(12.01);
     for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
-    const brute = f.raiders.find(enemy => enemy.userData.enemyKind === 'brute'); brute.position.set(f.hero.position.x + 1.5, 0, f.hero.position.z);
-    for (const enemy of f.raiders.filter(enemy => enemy.userData.enemyKind === 'skirmisher')) enemy.position.set(f.hero.position.x + 2.5, 0, f.hero.position.z + .4);
-    const before = brute.position.distanceTo(f.hero.position); f.engine.attack(); assert.equal(f.state.kills, 2); assert.ok(brute.position.distanceTo(f.hero.position) > before + 1);
-    assert.ok(f.scene.getObjectByName('combat-impact')); f.engine.attack(); assert.equal(f.state.kills, 2);
-    f.advance(.7); f.engine.attack(); assert.equal(f.state.kills, 2, 'heavy attack has a longer cooldown');
-    f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 3);
+    const brute = f.raiders.find(enemy => enemy.userData.enemyKind === 'brute');
+    const skirmishers = f.raiders.filter(enemy => enemy.userData.enemyKind === 'skirmisher');
+    const nearby = () => { brute.position.set(f.hero.position.x + 1.5, 0, f.hero.position.z); skirmishers.filter(enemy => enemy.userData.enemyKind).forEach(enemy => enemy.position.set(f.hero.position.x + 2.5, 0, f.hero.position.z + .4)); };
+    nearby(); const before = brute.position.distanceTo(f.hero.position); f.engine.attack(); assert.equal(f.state.kills, 0); assert.ok(brute.position.distanceTo(f.hero.position) > before + 1);
+    assert.ok(f.scene.getObjectByName('combat-impact')); f.engine.attack(); assert.equal(f.state.kills, 0);
+    f.advance(.7); nearby(); f.engine.attack(); assert.equal(f.state.kills, 0, 'heavy attack has a longer cooldown');
+    f.advance(.4); nearby(); f.engine.attack(); assert.equal(f.state.kills, skirmishers.length, 'two hammer hits defeat four-HP skirmishers');
+    assert.ok(brute.userData.enemyKind, 'nine-HP brute survives six hammer damage');
+    f.advance(1.1); nearby(); f.engine.attack(); assert.equal(f.state.kills, skirmishers.length + 1);
   } finally { f.engine.destroy(); }
 });
 
@@ -153,12 +160,12 @@ test('cannon towers launch visible shells and score kills only after explosive i
     const home = f.map.plots[0]; f.teleport(home.x, home.z); assert.equal(f.engine.buildAtPlot(home.id, 'house'), true);
     const plot = f.map.plots[1]; f.teleport(plot.x, plot.z); assert.equal(f.engine.buildAtPlot(plot.id, 'tower'), true); f.advance(.9);
     f.engine.pause(); f.engine.resume(); // Refresh the ten-hertz snapshot before aligning the raid frame.
-    f.jump(18.001 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) enemy.position.set(-43, 0, -36);
-    const target = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); target.position.set(plot.x + 10, 0, plot.z + 8);
+    f.jump(12.001 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) enemy.position.set(-43, 0, -36);
+    const target = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); target.position.set(f.hero.position.x + .8, 0, f.hero.position.z); f.engine.attack(); target.position.set(plot.x + 10, 0, plot.z + 8);
     f.advance(.02); const shell = f.scene.getObjectByName('cannon-shell'); assert.ok(shell); assert.equal(f.state.kills, 0);
     const y = shell.position.y; f.advance(.12); assert.equal(f.state.kills, 0, 'muzzle flash and shot launch do not instantly kill'); assert.notEqual(shell.position.y, y);
     f.advance(1.05); assert.ok(f.state.kills >= 1, 'shell explosion applies real damage and kill credit');
-    assert.ok(f.scene.children.some(object => object.userData.weaponKind === 'sword'));
+    assert.equal(f.scene.children.filter(object => object.userData.weaponKind).length, 0, 'a cannon kill also rolls loot instead of guaranteeing it');
   } finally { f.engine.destroy(); }
 });
 
@@ -174,38 +181,47 @@ test('companion orders queue during chat pause, walk and animate, pay for builds
     f.engine.commandCompanion({ character: 'theron', action: 'build', building: 'temple' }); f.advance(7);
     assert.equal(f.state.buildings.length, 1, 'helper cannot build an unaffordable temple for free'); assert.match(f.state.companions.find(item => item.character === 'theron').description, /Waiting for materials/);
     f.engine.commandCompanion({ character: 'theron', action: 'follow' }); f.advance(.3);
-    f.jump(18.01 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+    if (120 - f.state.timeLeft < 12.01) f.jump(12.01 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
     const skirmisher = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); skirmisher.position.set(theron.position.x + 1, 0, theron.position.z);
-    f.engine.commandCompanion({ character: 'theron', action: 'fight' }); f.advance(2.7); assert.ok(f.state.kills >= 1, 'helper attacks earn normal kill credit');
+    f.engine.commandCompanion({ character: 'theron', action: 'fight' }); f.advance(4.8); assert.ok(f.state.kills >= 1, 'helper attacks earn normal kill credit');
     f.engine.commandCompanion({ character: 'mira', action: 'follow' }); assert.equal(f.state.companions.find(item => item.character === 'mira').action, 'follow');
   } finally { f.engine.destroy(); }
 });
 
-test('frequent mixed raids and melee have real health differences and bounded enemy populations', () => {
+test('denser raids use four/nine HP and bounded regular populations plus one boss slot', () => {
   const f = fixture();
   try {
-    f.engine.start(1); f.jump(18.01); assert.equal(f.state.wave, 1); assert.equal(f.state.enemies, 4);
+    f.engine.start(1); f.jump(12.01); assert.equal(f.state.wave, 1); assert.equal(f.state.enemies, 6);
     assert.equal(new Set(f.state.enemyPositions.map(enemy => enemy.kind)).size, 3);
-    assert.ok(f.state.nextRaid > 19.9 && f.state.nextRaid < 20);
-    const p = f.hero.position.clone();
+    assert.ok(f.state.nextRaid > 13.9 && f.state.nextRaid < 14);
     for (const enemy of f.raiders) enemy.position.set(42, 0, -36);
     const skirmishers = f.raiders.filter(enemy => enemy.userData.enemyKind === 'skirmisher');
-    skirmishers.forEach((enemy, i) => enemy.position.set(p.x + .8, 0, p.z + i * .25));
-    f.engine.attack(); assert.equal(f.state.kills, 0); f.engine.attack(); assert.equal(f.state.kills, 0, 'cooldown prevents attack spam');
-    f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 2, 'two cuts defeat both nearby skirmishers');
-    const brute = f.raiders.find(enemy => enemy.userData.enemyKind === 'brute'); brute.position.set(f.hero.position.x + 1, 0, f.hero.position.z);
-    for (let hit = 0; hit < 3; hit++) { f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 2, 'brute survives the first three sword hits'); }
-    f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 3);
-    f.engine.start(12); f.jump(12);
-    for (let wave = 0; wave < 9; wave++) { for (const enemy of f.raiders) enemy.position.set(42, 0, -36); f.jump(10); assert.ok(f.state.enemies <= 18); }
-    assert.ok(f.state.wave >= 9); assert.ok(f.state.enemyPositions.every(enemy => Number.isFinite(enemy.x) && Number.isFinite(enemy.z)));
+    for (let hit = 0; hit < 4; hit++) {
+      if (hit) f.advance(.4); skirmishers.forEach((enemy, i) => enemy.position.set(f.hero.position.x + .8, 0, f.hero.position.z + i * .25));
+      f.engine.attack(); if (hit < 3) assert.equal(f.state.kills, 0, 'skirmishers survive three sword cuts');
+    }
+    assert.equal(f.state.kills, skirmishers.length);
+    const brute = f.raiders.find(enemy => enemy.userData.enemyKind === 'brute');
+    for (let hit = 0; hit < 9; hit++) {
+      f.advance(.4); brute.position.set(f.hero.position.x + 1, 0, f.hero.position.z); f.engine.attack();
+      if (hit < 8) assert.equal(f.state.kills, skirmishers.length, 'brute survives eight sword cuts');
+    }
+    assert.equal(f.state.kills, skirmishers.length + 1);
+    f.engine.start(12); f.jump(12.01);
+    for (let wave = 0; wave < 12; wave++) {
+      for (const enemy of f.raiders) enemy.position.set(42, 0, -36); f.jump(8);
+      assert.ok(f.state.enemyPositions.filter(enemy => enemy.kind !== 'boss').length <= 32); assert.ok(f.state.enemies <= 33);
+    }
+    assert.equal(f.state.enemyPositions.filter(enemy => enemy.kind !== 'boss').length, 32);
+    assert.equal(f.state.enemyPositions.filter(enemy => enemy.kind === 'boss').length, 1, 'boss gets an additional slot even at the regular cap');
+    assert.equal(f.state.bossEnemy.maxHealth, 80); assert.ok(f.state.wave >= 12); assert.ok(f.state.enemyPositions.every(enemy => Number.isFinite(enemy.x) && Number.isFinite(enemy.z)));
   } finally { f.engine.destroy(); }
 });
 
 test('archers telegraph locked aim, pause their windup, and fire physical arrows the hero can dodge', () => {
   const f = fixture();
   try {
-    f.engine.start(1); f.jump(18.01);
+    f.engine.start(1); f.jump(12.01);
     for (const enemy of f.raiders) enemy.position.set(43, 0, -35);
     const archer = f.raiders.find(enemy => enemy.userData.enemyKind === 'archer');
     archer.position.set(f.hero.position.x + 8, 0, f.hero.position.z + 2);
@@ -228,16 +244,112 @@ test('archers telegraph locked aim, pause their windup, and fire physical arrows
   } finally { f.engine.destroy(); }
 });
 
-test('large frames keep the real deadline, bound catch-up, freeze pause and preserve the full finale', () => {
+test('seeded weapon drops are reproducible and occur for roughly 28% of kills', () => {
+  const f = fixture();
+  try {
+    let seed = 1234, drops = 0; const sequence = [];
+    for (let i = 0; i < 10000; i++) { const result = f.api.rollWeaponDrop(seed); seed = result.seed; if (result.dropped) drops++; if (i < 12) sequence.push(result.dropped); }
+    assert.ok(drops > 2700 && drops < 2900); assert.ok(sequence.includes(true) && sequence.includes(false));
+    seed = 1234; for (const expected of sequence) { const result = f.api.rollWeaponDrop(seed); assert.equal(result.dropped, expected); seed = result.seed; }
+  } finally { f.engine.destroy(); }
+});
+
+test('large frames keep the deadline, bound catch-up and lose without a defeated boss', () => {
   const f = fixture();
   try {
     f.engine.start(1); let count = f.updates; f.jump(10);
     assert.ok(Math.abs(f.state.timeLeft - 110) < 1e-8); assert.ok(f.updates - count <= 6);
     f.engine.pause(); f.jump(50); assert.ok(Math.abs(f.state.timeLeft - 110) < 1e-8); f.engine.resume();
-    f.jump(111); assert.equal(f.state.phase, 'disaster'); assert.equal(f.state.finaleTime, 0); assert.equal(f.state.health, 100);
-    count = f.updates; f.jump(8.9); assert.equal(f.state.phase, 'disaster'); assert.ok(f.updates - count <= 6);
-    f.jump(.2); assert.equal(f.state.phase, 'ended'); assert.equal(f.state.outcome, 'legend'); assert.equal(f.state.finaleTime, 9); assert.equal(f.state.score, 200);
-    f.engine.attack(); f.engine.interact(); f.jump(2); assert.equal(f.state.score, 200);
+    count = f.updates; f.jump(111); assert.equal(f.state.phase, 'ended'); assert.equal(f.state.outcome, 'fallen'); assert.equal(f.state.timeLeft, 0); assert.equal(f.state.health, 0); assert.equal(f.state.finaleTime, 0);
+    assert.equal(f.updates, count, 'a deadline loss never triggers a horse collapse'); assert.equal(f.state.bossEnemy, null, 'a stalled frame does not spawn a boss after the deadline');
+    f.engine.attack(); f.engine.interact(); f.jump(2); assert.equal(f.state.score, 0);
     f.engine.destroy(); f.engine.destroy(); const renders = f.renders; f.jump(1); assert.equal(f.renders, renders);
+  } finally { f.engine.destroy(); }
+});
+
+test('boss arrives once at thirty seconds, is reachable and visible across maps, pauses and resets', () => {
+  const f = fixture();
+  try {
+    for (let stage = 1; stage <= 4; stage++) {
+      f.engine.start(stage); assert.equal(f.state.boss, 'waiting'); assert.equal(f.state.bossEnemy, null);
+      f.jump(89.8); assert.equal(f.state.bossEnemy, null);
+      for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+      f.advance(.3); const bosses = f.raiders.filter(enemy => enemy.userData.enemyKind === 'boss');
+      assert.equal(bosses.length, 1); assert.equal(f.state.boss, 'active'); assert.equal(f.state.bossEnemy.name, 'Achaean Warlord');
+      const boss = bosses[0], distance = boss.position.distanceTo(f.hero.position);
+      assert.ok(distance >= 10 && distance <= 14, `stage ${stage} has a safe nearby arrival distance (${distance})`);
+      assert.ok(f.api.canOccupyTroyPosition(boss.position.x, boss.position.z, f.world.colliders, .5, f.map.bounds));
+      const projected = boss.position.clone().add(new THREE.Vector3(0, 1.3, 0)).project(f.camera);
+      assert.ok(Math.abs(projected.x) < 1 && Math.abs(projected.y) < 1 && projected.z > -1 && projected.z < 1, `stage ${stage} arrival is visible`);
+      assert.ok(boss.children[0].scale.y > 2, 'boss silhouette is substantially larger than ordinary raiders');
+      assert.match(f.state.hint, /Warlord/, 'arrival message survives simultaneous raid warnings');
+      f.engine.pause(); const position = boss.position.clone(), health = f.state.bossEnemy.health, time = f.state.timeLeft;
+      f.engine.attack(); f.engine.dodge(); f.jump(50); assert.equal(f.state.timeLeft, time); assert.equal(f.state.bossEnemy.health, health); assert.equal(position.distanceTo(boss.position), 0);
+      f.engine.resume(); f.advance(.15); assert.equal(f.raiders.filter(enemy => enemy.userData.enemyKind === 'boss').length, 1);
+      f.engine.start(stage); assert.equal(boss.parent, null, 'reset disposes the previous boss'); assert.equal(f.state.bossEnemy, null); assert.equal(f.state.boss, 'waiting');
+    }
+  } finally { f.engine.destroy(); }
+});
+
+test('boss slam warns, freezes while paused, resists hammer interruptions and can be dodged', () => {
+  const f = fixture(1, ['sword', 'hammer']);
+  try {
+    f.engine.start(); f.jump(90.01); for (const enemy of f.raiders) if (enemy.userData.enemyKind !== 'boss') enemy.position.set(43, 0, -36);
+    const boss = f.raiders.find(enemy => enemy.userData.enemyKind === 'boss'); assert.ok(boss);
+    boss.position.set(f.hero.position.x + 3.1, 0, f.hero.position.z);
+    const ring = boss.children.find(child => child.geometry?.type === 'RingGeometry');
+    for (let i = 0; i < 120 && !ring.visible; i++) f.advance(.02);
+    assert.ok(ring.visible); assert.equal(f.state.health, 100); assert.equal(ring.scale.x, 1, 'full damage radius is visible throughout windup');
+    f.engine.selectWeapon('hammer'); const position = boss.position.clone(); f.engine.attack();
+    assert.equal(f.state.bossEnemy.health, 33); assert.equal(boss.position.distanceTo(position), 0, 'hammer cannot push the boss away');
+    f.advance(.1); assert.ok(ring.visible, 'hammer cannot cancel the slam windup');
+    f.engine.pause(); const time = f.state.timeLeft; f.jump(20); assert.equal(f.state.timeLeft, time); assert.ok(ring.visible); assert.equal(f.state.health, 100);
+    f.engine.resume(); f.advance(1.15); assert.equal(f.state.health, 70, 'unanswered slam deals thirty damage'); assert.ok(f.scene.getObjectByName('combat-impact'));
+    for (let i = 0; i < 120 && !ring.visible; i++) f.advance(.02);
+    assert.ok(ring.visible); f.advance(.82); const health = f.state.health;
+    f.engine.dodge(); f.advance(.55); assert.equal(f.state.health, health, 'timed dodge avoids the heavy slam');
+  } finally { f.engine.destroy(); }
+});
+
+test('boss rounds a blocking plot corner instead of stalling within melee distance', () => {
+  const f = fixture();
+  try {
+    f.engine.start(); const plot = f.map.plots[0]; f.teleport(plot.x, plot.z); assert.equal(f.engine.buildAtPlot(plot.id, 'house'), true);
+    f.jump(90.01 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) if (enemy.userData.enemyKind !== 'boss') enemy.position.set(43, 0, -36);
+    const boss = f.raiders.find(enemy => enemy.userData.enemyKind === 'boss'); assert.ok(boss);
+    const building = f.world.colliders.find(collider => collider.x === plot.x && collider.z === plot.z); assert.ok(building);
+    f.hero.position.set(plot.x + building.w / 2 + .6, 0, plot.z + building.d / 2 - 1);
+    boss.position.set(plot.x + building.w / 2 - 1, 0, plot.z + building.d / 2 + .6); const start = boss.position.clone();
+    assert.ok(f.api.canOccupyTroyPosition(start.x, start.z, f.world.colliders, .5, f.map.bounds));
+    f.advance(1.5); assert.ok(boss.position.distanceTo(start) > .6, 'boss navigates around the obstruction even inside its nominal attack radius');
+    assert.ok(f.api.canOccupyTroyPosition(boss.position.x, boss.position.z, f.world.colliders, .38, f.map.bounds));
+    f.engine.commandCompanion({ character: 'mira', action: 'fight' }); const mira = f.scene.getObjectByName('mira');
+    boss.position.copy(f.hero.position); mira.position.copy(start); const before = mira.position.clone(); f.advance(.7);
+    assert.ok(mira.position.distanceTo(before) > .1, 'a ranged helper repositions for a clear shot instead of staying behind cover');
+  } finally { f.engine.destroy(); }
+});
+
+test('defeating the enraged boss credits exactly one kill and preserves the full horse finale', () => {
+  const f = fixture(1, ['sword', 'hammer']);
+  try {
+    f.engine.start(); f.engine.selectWeapon('hammer'); f.jump(90.01);
+    const boss = f.raiders.find(enemy => enemy.userData.enemyKind === 'boss'); assert.ok(boss);
+    for (let hit = 0; hit < 12; hit++) {
+      // Isolate real weapon damage from the crowd while allowing cooldown and AI clocks to run.
+      for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+      if (hit) f.advance(1.08);
+      boss.position.set(f.hero.position.x + 3, 0, f.hero.position.z); f.engine.attack();
+      if (hit === 5) { assert.equal(f.state.bossEnemy.health, 18); f.advance(.02); assert.ok(f.events.some(event => /enraged/.test(event.message))); }
+      if (hit < 11) assert.equal(f.state.kills, 0);
+    }
+    assert.equal(f.state.boss, 'defeated'); assert.equal(f.state.bossEnemy, null); assert.equal(f.state.kills, 1); assert.equal(f.state.combatScore, 35); assert.equal(f.state.score, 35);
+    assert.equal(f.scene.children.filter(object => object.userData.weaponKind).length, 0, 'the boss also uses the unlucky first28% roll');
+    assert.match(f.state.hint, /Warlord defeated/); assert.ok(f.scene.getObjectByName('fallen-boss'));
+    for (const enemy of f.raiders) enemy.position.set(43, 0, -36); f.advance(.8); assert.equal(f.scene.getObjectByName('fallen-boss'), undefined);
+    f.jump(f.state.timeLeft + .2); assert.equal(f.state.phase, 'disaster'); assert.equal(f.state.finaleTime, 0);
+    assert.equal(f.scene.children.filter(object => object.userData.weaponKind).length, 0); assert.equal(f.scene.getObjectByName('hostile-arrow'), undefined);
+    const count = f.updates; f.jump(8.9); assert.equal(f.state.phase, 'disaster'); assert.ok(f.updates - count <= 6);
+    f.jump(.2); assert.equal(f.state.phase, 'ended'); assert.equal(f.state.outcome, 'legend'); assert.equal(f.state.finaleTime, 9); assert.equal(f.state.score, 235);
+    const score = f.state.score; f.engine.attack(); f.jump(2); assert.equal(f.state.score, score); assert.equal(f.state.kills, 1);
   } finally { f.engine.destroy(); }
 });

@@ -1,10 +1,10 @@
 import { boundedText, errorResponse, guardRequest, json, readJson, RequestError } from '../../../lib/api-guard';
 import { geminiTroyConverse, localTroyConverse, type TroyConverseContext, type TroyConverseTurn } from '../../../lib/troy-converse';
 import { serverEnv } from '../../../lib/server-env';
-import { BLUEPRINTS, RUN_DURATION, WEAPONS } from '../../../troy/config';
+import { BLUEPRINTS, BOSS_ARRIVAL, RUN_DURATION, WEAPONS } from '../../../troy/config';
 import { createCityMap } from '../../../troy/maps';
 import { getRunMissions } from '../../../troy/rules';
-import type { BuildingKind, CharacterId, Materials, TroyPhase, WeaponKind } from '../../../troy/types';
+import type { BuildingKind, CharacterId, Materials, RunState, TroyPhase, WeaponKind } from '../../../troy/types';
 
 const CHARACTERS = ['lyra', 'mira', 'theron'];
 const PHASES = ['ready', 'playing', 'disaster', 'ended'];
@@ -31,11 +31,15 @@ function contextFrom(value: unknown): TroyConverseContext {
   if (!Array.isArray(weapons) || weapons.length < 1 || weapons.length > 3 || new Set(weapons).size !== weapons.length || !weapons.includes('sword') || weapons.some(kind => !WEAPONS.some(item => item.id === kind))) throw new RequestError('Invalid weapon inventory.');
   const weapon = value.weapon ?? 'sword';
   if (!weapons.includes(weapon)) throw new RequestError('The equipped weapon must be owned.');
+  const timeLeft = boundedNumber(value.timeLeft, 'context.timeLeft', RUN_DURATION, false);
+  const health = boundedNumber(value.health, 'context.health', 100, false);
+  const boss = value.boss ?? (value.phase === 'disaster' || value.phase === 'ended' && health > 0 ? 'defeated' : timeLeft <= BOSS_ARRIVAL ? 'active' : 'waiting');
+  if (!['waiting', 'active', 'defeated'].includes(String(boss))) throw new RequestError('Invalid warlord state.');
+  if (value.boss !== undefined && ((boss === 'waiting' && timeLeft <= BOSS_ARRIVAL) || (boss !== 'waiting' && timeLeft > BOSS_ARRIVAL))) throw new RequestError('Warlord state does not match the clock.');
   return {
     weapons: weapons as WeaponKind[], weapon: weapon as WeaponKind,
     stage, seed, explored: boundedNumber(value.explored ?? 0, 'context.explored', map.landmarks.length),
-    phase: value.phase as TroyPhase, timeLeft: boundedNumber(value.timeLeft, 'context.timeLeft', RUN_DURATION, false),
-    health: boundedNumber(value.health, 'context.health', 100, false), materials,
+    phase: value.phase as TroyPhase, timeLeft, health, materials, boss: boss as RunState['boss'],
     buildings: boundedNumber(value.buildings, 'context.buildings', map.plots.length),
     missions: boundedNumber(value.missions, 'context.missions', getRunMissions({ stage, seed }).length),
     kills: boundedNumber(value.kills, 'context.kills', 10_000), selected: value.selected as BuildingKind,

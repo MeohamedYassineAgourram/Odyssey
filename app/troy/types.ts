@@ -5,6 +5,7 @@ export type EndingKind = 'stampede' | 'firestorm' | 'ambush' | 'earthquake';
 export type TroyPhase = 'ready' | 'playing' | 'disaster' | 'ended';
 export type CharacterId = 'lyra' | 'mira' | 'theron';
 export type WeaponKind = 'sword' | 'bow' | 'hammer';
+export type BossStatus = 'waiting' | 'active' | 'defeated';
 export type CompanionOrder = { character: 'theron' | 'mira'; action: 'fight' | 'build' | 'follow'; building?: BuildingKind };
 export type CompanionStatus = { character: 'theron' | 'mira'; action: 'idle' | 'fight' | 'build' | 'follow'; description: string };
 export type Blueprint = { id: BuildingKind; name: string; description: string; cost: Materials; points: number };
@@ -27,6 +28,7 @@ export type RunState = {
   buildings: PlacedBuilding[]; gathered: number; kills: number; completedMissions: string[];
   explored: string[]; expeditionScore: number;
   weapons: WeaponKind[]; weapon: WeaponKind;
+  boss: BossStatus;
   constructionScore: number; missionScore: number; combatScore: number; survivalScore: number; score: number;
   ending: EndingKind; finaleTime: number; productionTime: number; outcome: 'none' | 'legend' | 'fallen';
 };
@@ -34,7 +36,8 @@ export type Interaction = { id: string; kind: 'plot' | 'resource' | 'advisor' | 
 export type TroySnapshot = RunState & {
   paused: boolean; selected: BuildingKind; nearest: Interaction | null; player: { x: number; z: number };
   stamina: number; enemies: number; attackCooldown: number; dodgeCooldown: number; wave: number; hint: string;
-  nextRaid: number; enemyPositions: { x: number; z: number; kind: 'skirmisher' | 'brute' | 'archer' }[];
+  nextRaid: number; enemyPositions: { x: number; z: number; kind: 'skirmisher' | 'brute' | 'archer' | 'boss' }[];
+  bossEnemy: { name: string; health: number; maxHealth: number } | null;
   companions: CompanionStatus[];
 };
 export type ControllerInput = { x: number; y: number; lookX: number; lookY: number; sprint: boolean };

@@ -1,6 +1,7 @@
 import type { Blueprint, EndingKind, Material, Mission, Plot, WeaponKind } from './types';
 export const RUN_DURATION = 120;
 export const FINALE_DURATION = 9;
+export const BOSS_ARRIVAL = 30;
 export const WEAPONS: { id: WeaponKind; name: string; description: string }[] = [
   { id: 'sword', name: 'Bronze sword', description: 'A reliable blade for close combat.' },
   { id: 'bow', name: 'Hunter’s bow', description: 'Keep your distance and strike from range.' },

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createCharacter } from '../oracle/characters';
 import { BLUEPRINTS, FINALE_DURATION, RUN_DURATION } from './config';
-import { advanceRun, buildAt, buildingCostReason, canBuild, collectWeapon, createRun, discoverLandmark, equipWeapon, gather, getMissions, recordKill, takeDamage } from './rules';
+import { advanceRun, buildAt, buildingCostReason, canBuild, collectWeapon, createRun, defeatBoss, discoverLandmark, equipWeapon, gather, getMissions, recordKill, takeDamage } from './rules';
 import { createCityMap } from './maps';
 import { createWeaponLoot, createWeaponModel } from './arsenal';
 import type { BuildingKind, CityMap, CompanionOrder, CompanionStatus, ControllerInput, EndingKind, Interaction, RunState, TroyCallbacks, TroyEngine, WeaponKind } from './types';
@@ -12,17 +12,24 @@ const DODGE_COOLDOWN = 1.8, HERO_RADIUS = .38;
 const WEAPON_STATS = { sword: { cooldown: .38, name: 'Bronze sword' }, bow: { cooldown: .64, name: 'Trojan bow' }, hammer: { cooldown: 1.05, name: 'War hammer' } };
 const RESOURCE_NAMES = { wood: 'timber', stone: 'stone', bronze: 'bronze' };
 type Collider = { x: number; z: number; w: number; d: number };
-type EnemyKind = 'skirmisher' | 'brute' | 'archer';
-const ENEMY_WEAPONS: Record<EnemyKind, WeaponKind> = { skirmisher: 'sword', archer: 'bow', brute: 'hammer' };
+type EnemyKind = 'skirmisher' | 'brute' | 'archer' | 'boss';
+const BOSS_NAME = 'Achaean Warlord';
+const ENEMY_WEAPONS: Record<EnemyKind, WeaponKind> = { skirmisher: 'sword', archer: 'bow', brute: 'hammer', boss: 'hammer' };
 const ENEMY_STATS = {
-  skirmisher: { hp: 2, speed: 5.6, damage: 13, windup: .58, cooldown: 1.15, range: 2.1, color: '#ee725b' },
-  brute: { hp: 4, speed: 3.75, damage: 24, windup: .95, cooldown: 1.85, range: 2.8, color: '#c586e8' },
-  archer: { hp: 2, speed: 4.6, damage: 11, windup: 1.1, cooldown: 2.5, range: 16, color: '#f3c85c' },
+  skirmisher: { hp: 4, speed: 5.6, damage: 13, windup: .58, cooldown: 1.15, range: 2.1, color: '#ee725b' },
+  brute: { hp: 9, speed: 3.75, damage: 24, windup: .95, cooldown: 1.85, range: 2.8, color: '#c586e8' },
+  archer: { hp: 4, speed: 4.6, damage: 11, windup: 1.1, cooldown: 2.5, range: 16, color: '#f3c85c' },
+  boss: { hp: 36, speed: 5.25, damage: 30, windup: 1.2, cooldown: 1.65, range: 5, color: '#ff453c' },
 };
 /** Difficulty plateaus so a long career remains playable. */
 export function getRaidDifficulty(stage: number) {
   const level = clamp(Number.isFinite(stage) ? Math.floor(stage) : 1, 1, 12);
-  return { firstRaid: Math.max(11, 18 - (level - 1) * .65), interval: Math.max(10, 20 - (level - 1) * 1.15), aliveCap: Math.min(18, 14 + Math.floor((level - 1) / 2)), hpBonus: Math.min(2, Math.floor((level - 1) / 4)), damageScale: 1 + (level - 1) * .055, speedScale: 1 + (level - 1) * .018, extraRaiders: Math.min(4, Math.floor((level - 1) / 3)) };
+  return { firstRaid: 12, interval: Math.max(8, 14 - (level - 1) * .7), aliveCap: Math.min(32, 24 + Math.floor((level - 1) * .8)), hpBonus: Math.min(4, Math.floor((level - 1) / 2)), bossHealth: Math.min(80, 36 + (level - 1) * 4), damageScale: 1 + (level - 1) * .055, speedScale: 1 + (level - 1) * .018, extraRaiders: Math.min(4, Math.floor((level - 1) / 2)) };
+}
+/** A separate seeded stream keeps the 28% loot roll independent of animation/AI calls. */
+export function rollWeaponDrop(seed: number) {
+  const nextSeed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  return { seed: nextSeed, dropped: nextSeed / 4294967296 < .28 };
 }
 /** Swept projectile collision prevents arrows tunnelling past the hero between frames. */
 export function distanceToSegment(x: number, z: number, ax: number, az: number, bx: number, bz: number) {
@@ -65,9 +72,9 @@ function weaponHand(root: THREE.Group) {
 
 function createRaider(kind: EnemyKind) {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body); root.name = `raider-${kind}`; root.userData.enemyKind = kind;
-  const stats = ENEMY_STATS[kind]; body.scale.setScalar(kind === 'brute' ? 1.28 : kind === 'archer' ? .96 : 1);
-  const bronze = new THREE.MeshStandardMaterial({ color: kind === 'brute' ? '#66556e' : kind === 'archer' ? '#77694a' : '#ad7546', metalness: .68, roughness: .44 });
-  const cloth = new THREE.MeshStandardMaterial({ color: kind === 'archer' ? '#567344' : kind === 'brute' ? '#653a71' : '#a34030', roughness: .95 });
+  const stats = ENEMY_STATS[kind], isBoss = kind === 'boss'; body.scale.setScalar(isBoss ? 2.2 : kind === 'brute' ? 1.28 : kind === 'archer' ? .96 : 1);
+  const bronze = new THREE.MeshStandardMaterial({ color: isBoss ? '#282b36' : kind === 'brute' ? '#66556e' : kind === 'archer' ? '#77694a' : '#ad7546', metalness: .68, roughness: .44 });
+  const cloth = new THREE.MeshStandardMaterial({ color: isBoss ? '#731b27' : kind === 'archer' ? '#567344' : kind === 'brute' ? '#653a71' : '#a34030', roughness: .95 });
   const skin = new THREE.MeshStandardMaterial({ color: '#b68865', roughness: .9 });
   const iron = new THREE.MeshStandardMaterial({ color: '#4c5351', metalness: .6, roughness: .5 });
   const part = (parent: THREE.Object3D, geo: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
@@ -94,21 +101,34 @@ function createRaider(kind: EnemyKind) {
     const quiver = part(body, new THREE.CylinderGeometry(.12, .1, .65, 8), cloth, -.17, 1.45, -.32); quiver.rotation.z = -.3;
     for (let i = 0; i < 3; i++) part(body, new THREE.CylinderGeometry(.018, .018, .45, 4), bronze, -.21 + i * .06, 1.92, -.32);
   } else {
-    const blade = part(weapon, new THREE.BoxGeometry(kind === 'brute' ? .12 : .075, .95, .045), bronze, 0, -.26, .5); blade.rotation.x = Math.PI / 2;
-    if (kind === 'brute') part(weapon, new THREE.BoxGeometry(.55, .085, .3), iron, 0, -.26, .83);
-    const shield = part(body, new THREE.CylinderGeometry(kind === 'brute' ? .49 : .36, kind === 'brute' ? .49 : .36, .07, 14), bronze, -.37, 1.25, .25); shield.rotation.x = Math.PI / 2;
+    const blade = part(weapon, new THREE.BoxGeometry(kind === 'brute' || isBoss ? .12 : .075, .95, .045), bronze, 0, -.26, .5); blade.rotation.x = Math.PI / 2;
+    if (kind === 'brute' || isBoss) part(weapon, new THREE.BoxGeometry(isBoss ? .78 : .55, isBoss ? .32 : .085, .3), iron, 0, -.26, .83);
+    const shield = part(body, new THREE.CylinderGeometry(kind === 'brute' || isBoss ? .49 : .36, kind === 'brute' || isBoss ? .49 : .36, .07, 14), bronze, -.37, 1.25, .25); shield.rotation.x = Math.PI / 2;
     const boss = part(body, new THREE.SphereGeometry(.12, 8, 6), iron, -.37, 1.25, .3); boss.scale.z = .5;
   }
+  if (isBoss) {
+    const gold = new THREE.MeshStandardMaterial({ color: '#edb845', metalness: .85, roughness: .3 });
+    // Oversized black-and-gold pauldrons, horned crown and crimson cape distinguish
+    // the Warlord even when surrounded by ordinary armored brutes.
+    for (const side of [-1, 1]) {
+      part(body, new THREE.IcosahedronGeometry(.29, 0), gold, side * .36, 1.52, 0);
+      const horn = part(body, new THREE.ConeGeometry(.095, .46, 6), gold, side * .2, 2.23, -.04); horn.rotation.z = -side * .45;
+    }
+    part(body, new THREE.BoxGeometry(.26, .48, .06), gold, 0, 1.31, .28);
+    const cape = part(body, new THREE.BoxGeometry(.69, 1.25, .065), cloth, 0, 1.01, -.3); cape.rotation.x = -.16;
+    part(weapon, new THREE.OctahedronGeometry(.22, 0), gold, 0, -.26, .87);
+  }
   const telegraphMaterial = new THREE.MeshBasicMaterial({ color: stats.color, transparent: true, opacity: .55, side: THREE.DoubleSide, depthWrite: false });
-  const telegraph = new THREE.Mesh(new THREE.RingGeometry(kind === 'archer' ? .75 : .2, kind === 'brute' ? 2.8 : kind === 'archer' ? 1 : 2.1, 40), telegraphMaterial); telegraph.rotation.x = -Math.PI / 2; telegraph.position.y = .06; telegraph.visible = false; root.add(telegraph);
-  const healthBack = new THREE.Mesh(new THREE.PlaneGeometry(.9, .09), new THREE.MeshBasicMaterial({ color: '#342d2b', side: THREE.DoubleSide, depthTest: false })); healthBack.position.y = kind === 'brute' ? 3.12 : 2.65; root.add(healthBack);
+  const telegraph = new THREE.Mesh(new THREE.RingGeometry(kind === 'archer' ? .75 : .2, isBoss ? stats.range : kind === 'brute' ? 2.8 : kind === 'archer' ? 1 : 2.1, 40), telegraphMaterial); telegraph.rotation.x = -Math.PI / 2; telegraph.position.y = .06; telegraph.visible = false; root.add(telegraph);
+  const healthBack = new THREE.Mesh(new THREE.PlaneGeometry(.9, .09), new THREE.MeshBasicMaterial({ color: '#342d2b', side: THREE.DoubleSide, depthTest: false })); healthBack.position.y = isBoss ? 5.8 : kind === 'brute' ? 3.12 : 2.65; root.add(healthBack);
   const healthFill = new THREE.Mesh(new THREE.PlaneGeometry(.86, .065), new THREE.MeshBasicMaterial({ color: stats.color, side: THREE.DoubleSide, depthTest: false })); healthFill.position.copy(healthBack.position); healthFill.position.z = .01; root.add(healthFill);
   const aimLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: stats.color, transparent: true, opacity: .7, depthTest: false })); aimLine.visible = false; aimLine.name = 'archer-aim';
   return { root, telegraph, aimLine, healthBack, healthFill, animate(time: number, moving: boolean, winding: number, hit: number, health: number) {
     const gait = Math.sin(time * 9); legs[0].rotation.x = moving ? gait * .6 : 0; legs[1].rotation.x = moving ? -gait * .6 : 0;
-    body.position.y = moving ? Math.abs(gait) * .055 : 0; body.rotation.z = hit > 0 ? Math.sin(hit * 45) * .16 : 0;
+    body.position.y = moving ? Math.abs(gait) * .055 : 0; body.rotation.z = !isBoss && hit > 0 ? Math.sin(hit * 45) * .16 : 0;
     weapon.rotation.x = winding > 0 ? -1.8 * (1 - winding / stats.windup) : -.2;
-    telegraph.visible = winding > 0; telegraph.scale.setScalar(winding > 0 ? .5 + .5 * (1 - winding / stats.windup) : 1); healthFill.scale.x = Math.max(0, health); healthFill.position.x = -(1 - health) * .43;
+    telegraph.visible = winding > 0; telegraph.scale.setScalar(!isBoss && winding > 0 ? .5 + .5 * (1 - winding / stats.windup) : 1);
+    if (isBoss) { bronze.emissive.set(health <= .5 ? '#e93920' : '#000000'); bronze.emissiveIntensity = health <= .5 ? .28 + Math.sin(time * 8) ** 2 * .3 : 0; } healthFill.scale.x = Math.max(0, health); healthFill.position.x = -(1 - health) * .43;
     telegraphMaterial.opacity = .3 + .35 * Math.sin(time * 17) ** 2;
   } };
 }
@@ -166,7 +186,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   let stamina = 1, walking = 0, stepTime = 0, attackRemaining = 0, attackVisual = 0, dodgeRemaining = 0, invulnerable = 0, dashRemaining = 0, hitFlash = 0;
   let attackCooldownMax = WEAPON_STATS.sword.cooldown, attackKind: WeaponKind = 'sword';
   let dashX = 0, dashZ = -1, facingX = 0, facingZ = -1, wave = 0, hint = '', hintUntil = 0, prankStage = 0, prankTime = 0, navTime = 0;
-  let nextRaidAt = difficulty.firstRaid, raidWarned = false;
+  let nextRaidAt = difficulty.firstRaid, raidWarned = false, bossSpawned = false, bossHintUntil = 0;
   let audioMuted = true, audio: AudioContext | null = null;
   const movement = { forward: false, backward: false, left: false, right: false, sprint: false };
   const neutralController = (): ControllerInput => ({ x: 0, y: 0, lookX: 0, lookY: 0, sprint: false });
@@ -174,8 +194,8 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const nodeReady = new Map<string, number>(), towerReady = new Map<string, number>();
   const followTarget = hero.root.position.clone().add(new THREE.Vector3(0, 1.2, -1.6));
   const cameraPosition = new THREE.Vector3(), temp = new THREE.Vector3();
-  type Enemy = { actor: ReturnType<typeof createRaider>; kind: EnemyKind; hp: number; maxHp: number; cooldown: number; windup: number; hit: number; id: number; aimX: number; aimZ: number; vx: number; vz: number };
-  const enemies: Enemy[] = []; let enemySerial = 0, randomValue = state.seed;
+  type Enemy = { actor: ReturnType<typeof createRaider>; kind: EnemyKind; hp: number; maxHp: number; cooldown: number; windup: number; hit: number; id: number; aimX: number; aimZ: number; vx: number; vz: number; enraged: boolean };
+  const enemies: Enemy[] = []; let enemySerial = 0, randomValue = state.seed, lootRandomValue = (state.seed ^ 0x9e3779b9) >>> 0;
   const shots: { mesh: THREE.Mesh; kind: 'bow' | 'cannon'; start: THREE.Vector3; end: THREE.Vector3; vx: number; vz: number; age: number; duration: number; damage: number }[] = [];
   const enemyArrows: { mesh: THREE.Mesh; vx: number; vz: number; life: number; damage: number }[] = [];
   const corpses: { actor: ReturnType<typeof createRaider>; age: number; y: number }[] = [];
@@ -213,17 +233,19 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const active = () => !destroyed && !paused && state.phase === 'playing';
   const emit = () => {
     if (destroyed) return;
+    const boss = enemies.find(enemy => enemy.kind === 'boss');
     // Cooldowns are normalized: zero is ready and one is the full cooldown.
-    callbacks.onUpdate({ ...state, materials: { ...state.materials }, buildings: state.buildings.map(building => ({ ...building })), completedMissions: [...state.completedMissions], explored: [...state.explored], weapons: [...state.weapons], paused, selected, nearest: nearest ? { ...nearest } : null, player: { x: hero.root.position.x, z: hero.root.position.z }, stamina: stamina * 100, enemies: enemies.length, attackCooldown: clamp(attackRemaining / attackCooldownMax, 0, 1), dodgeCooldown: clamp(dodgeRemaining / DODGE_COOLDOWN, 0, 1), wave, hint, nextRaid: state.phase === 'playing' || state.phase === 'ready' ? Math.max(0, nextRaidAt - elapsed) : 0, enemyPositions: enemies.map(enemy => ({ x: enemy.actor.root.position.x, z: enemy.actor.root.position.z, kind: enemy.kind })), companions: advisors.map(advisor => ({ character: advisor.config.id, action: advisor.action, description: advisor.description })) });
+    callbacks.onUpdate({ ...state, materials: { ...state.materials }, buildings: state.buildings.map(building => ({ ...building })), completedMissions: [...state.completedMissions], explored: [...state.explored], weapons: [...state.weapons], paused, selected, nearest: nearest ? { ...nearest } : null, player: { x: hero.root.position.x, z: hero.root.position.z }, stamina: stamina * 100, enemies: enemies.length, bossEnemy: boss ? { name: BOSS_NAME, health: Math.max(0, boss.hp), maxHealth: boss.maxHp } : null, attackCooldown: clamp(attackRemaining / attackCooldownMax, 0, 1), dodgeCooldown: clamp(dodgeRemaining / DODGE_COOLDOWN, 0, 1), wave, hint, nextRaid: state.phase === 'playing' || state.phase === 'ready' ? Math.max(0, nextRaidAt - elapsed) : 0, enemyPositions: enemies.map(enemy => ({ x: enemy.actor.root.position.x, z: enemy.actor.root.position.z, kind: enemy.kind })), companions: advisors.map(advisor => ({ character: advisor.config.id, action: advisor.action, description: advisor.description })) });
   };
   const showEvent = (type: string, message: string) => { if (!destroyed) callbacks.onEvent({ type, message }); };
-  const showHint = (message: string, seconds = 5) => { hint = message; hintUntil = elapsed + seconds; showEvent('warning', message); };
+  const showHint = (message: string, seconds = 5, bossNotice = false) => { if (!bossNotice && elapsed < bossHintUntil) return; if (bossNotice) bossHintUntil = elapsed + seconds; hint = message; hintUntil = elapsed + seconds; showEvent('warning', message); };
   const transition = (next: RunState) => {
     const previous = state; state = next;
     for (const mission of getMissions(state)) if (mission.completed && !previous.completedMissions.includes(mission.id)) {
       const supplies = Object.entries(mission.reward).filter(([, value]) => value > 0).map(([key, value]) => `+${value} ${RESOURCE_NAMES[key as keyof typeof RESOURCE_NAMES]}`).join(', ');
       showEvent('mission', `${mission.title} · +${mission.points} points · ${supplies}`);
     }
+    if (state.phase === 'playing' && state.boss === 'active' && !bossSpawned) spawnBoss();
     if (state.phase !== previous.phase) {
       clearInput(); nearest = null; clearArrows(); clearEffects();
       if (state.phase === 'disaster') {
@@ -233,7 +255,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       }
       if (state.phase === 'ended') {
         lastEnding = state.ending; hint = ''; paused = false; slash.visible = false; dodgeRing.visible = false; prank.visible = false; enemies.forEach(enemy => { enemy.actor.telegraph.visible = false; enemy.actor.aimLine.visible = false; });
-        showEvent(state.outcome === 'fallen' ? 'warning' : 'ending', state.outcome === 'fallen' ? 'Lyra has fallen. Your legend deserves another try.' : 'Troy fell. Your legend survived.');
+        showEvent(state.outcome === 'fallen' ? 'warning' : 'ending', state.outcome === 'fallen' ? state.timeLeft === 0 && state.boss !== 'defeated' ? 'The Warlord still stands. Troy is overrun.' : 'Lyra has fallen. Your legend deserves another try.' : 'Troy fell. Your legend survived.');
       }
       emit();
     }
@@ -328,15 +350,18 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   };
   const damageEnemy = (enemy: Enemy, amount: number) => {
     if (enemy.hp <= 0 || state.phase !== 'playing') return; enemy.hp -= amount; enemy.hit = .25;
-    if (enemy.kind !== 'brute') { enemy.windup = 0; enemy.cooldown = Math.max(enemy.cooldown, .5); enemy.actor.aimLine.visible = false; }
+    if (enemy.kind !== 'brute' && enemy.kind !== 'boss') { enemy.windup = 0; enemy.cooldown = Math.max(enemy.cooldown, .5); enemy.actor.aimLine.visible = false; }
     if (enemy.hp <= 0) {
       const index = enemies.indexOf(enemy); if (index >= 0) enemies.splice(index, 1);
       scene.remove(enemy.actor.aimLine); disposeObject(enemy.actor.aimLine); enemy.actor.telegraph.visible = enemy.actor.healthBack.visible = enemy.actor.healthFill.visible = false;
       delete enemy.actor.root.userData.enemyKind; enemy.actor.root.name = `fallen-${enemy.kind}`;
       if (corpses.length >= 18) { const oldest = corpses.shift()!; scene.remove(oldest.actor.root); disposeObject(oldest.actor.root); }
       corpses.push({ actor: enemy.actor, age: 0, y: enemy.actor.root.position.y });
-      dropWeapon(ENEMY_WEAPONS[enemy.kind], enemy.actor.root.position.x, enemy.actor.root.position.z);
-      transition(recordKill(state)); showEvent('combat', `${enemy.kind === 'brute' ? 'Armored brute' : enemy.kind === 'archer' ? 'Archer' : 'Skirmisher'} defeated · +35 points`);
+      const drop = rollWeaponDrop(lootRandomValue); lootRandomValue = drop.seed;
+      if (drop.dropped) dropWeapon(ENEMY_WEAPONS[enemy.kind], enemy.actor.root.position.x, enemy.actor.root.position.z);
+      transition(enemy.kind === 'boss' ? defeatBoss(state) : recordKill(state));
+      if (enemy.kind === 'boss') showHint('Warlord defeated. Hold until the final bell.', 6, true);
+      showEvent('combat', `${enemy.kind === 'boss' ? BOSS_NAME : enemy.kind === 'brute' ? 'Armored brute' : enemy.kind === 'archer' ? 'Archer' : 'Skirmisher'} defeated · +35 points`);
     }
   };
   const attack = () => {
@@ -349,7 +374,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     else {
       for (const enemy of targets) {
         damageEnemy(enemy, state.weapon === 'hammer' ? state.stage >= 5 ? 4 : 3 : state.stage >= 5 ? 2 : 1);
-        if (state.weapon === 'hammer' && enemy.hp > 0) { const position = enemy.actor.root.position, dx = position.x - p.x, dz = position.z - p.z, length = Math.hypot(dx, dz) || 1; move(position, dx / length * 2.2, dz / length * 2.2, .4); enemy.windup = 0; enemy.cooldown = Math.max(enemy.cooldown, .6); }
+        if (state.weapon === 'hammer' && enemy.hp > 0 && enemy.kind !== 'boss') { const position = enemy.actor.root.position, dx = position.x - p.x, dz = position.z - p.z, length = Math.hypot(dx, dz) || 1; move(position, dx / length * 2.2, dz / length * 2.2, .4); enemy.windup = 0; enemy.cooldown = Math.max(enemy.cooldown, .6); }
       }
       if (state.weapon === 'hammer') impact(p.x, p.z, 4.4, '#e4c0ff');
     }
@@ -389,7 +414,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   };
   const start = (nextStage = state.stage, weapons = state.weapons) => {
     if (destroyed) return;
-    const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0; state = createRun(seed, lastEnding, nextStage, weapons); randomValue = state.seed; syncHeldWeapon();
+    const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0; state = createRun(seed, lastEnding, nextStage, weapons); randomValue = state.seed; lootRandomValue = (state.seed ^ 0x9e3779b9) >>> 0; bossSpawned = false; bossHintUntil = 0; syncHeldWeapon();
     paused = false; selected = 'house'; nearest = null; clearInput(); clearEnemies(); clearArrows(); clearEffects(); nodeReady.clear(); towerReady.clear();
     scene.remove(world.root); disposeObject(world.root, marbleTexture); world.dispose();
     for (const { actor, marker } of advisors) { scene.remove(actor.root, marker); disposeObject(actor.root); disposeObject(marker); }
@@ -431,10 +456,10 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     return true;
   };
   const spawnEnemy = (x: number, z: number, kind: EnemyKind = 'skirmisher') => {
-    if (enemies.length >= difficulty.aliveCap) return;
-    const p = findFree(x, z, .43), actor = createRaider(kind), maxHp = ENEMY_STATS[kind].hp + difficulty.hpBonus;
+    if (kind === 'boss' ? bossSpawned || enemies.some(enemy => enemy.kind === 'boss') : enemies.filter(enemy => enemy.kind !== 'boss').length >= difficulty.aliveCap) return;
+    const p = findFree(x, z, .5), actor = createRaider(kind), maxHp = kind === 'boss' ? difficulty.bossHealth : ENEMY_STATS[kind].hp + difficulty.hpBonus;
     actor.root.position.set(p.x, world.groundHeight(p.x, p.z), p.z); scene.add(actor.root, actor.aimLine);
-    enemies.push({ actor, kind, hp: maxHp, maxHp, cooldown: .7 + random() * .7, windup: 0, hit: 0, id: enemySerial++, aimX: p.x, aimZ: p.z, vx: 0, vz: 0 });
+    enemies.push({ actor, kind, hp: maxHp, maxHp, cooldown: kind === 'boss' ? 1.8 : .7 + random() * .7, windup: 0, hit: 0, id: enemySerial++, aimX: p.x, aimZ: p.z, vx: 0, vz: 0, enraged: false });
   };
   const spawnWave = () => {
     const p = hero.root.position, b = map.bounds;
@@ -445,7 +470,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       { name: 'southern', distance: b.maxZ - p.z, x: p.x, z: b.maxZ - 2.8, alongX: true },
     ].sort((a, c) => a.distance - c.distance);
     const primary = fronts[0], secondary = fronts[1 + Math.floor(random() * 3)];
-    const count = 4 + difficulty.extraRaiders + Math.min(2, Math.floor((wave - 1) / 3));
+    const count = 6 + difficulty.extraRaiders + Math.min(2, Math.floor((wave - 1) / 3));
     const kinds: EnemyKind[] = ['skirmisher', 'skirmisher', 'archer', 'brute', 'skirmisher', 'archer', 'brute', 'skirmisher', 'archer', 'brute'];
     for (let i = 0; i < count; i++) {
       const front = i < Math.ceil(count * .65) ? primary : secondary, spread = (random() - .5) * 19;
@@ -459,8 +484,24 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   };
   const projected = new THREE.Vector3();
   const onScreen = (position: THREE.Vector3) => {
-    projected.copy(position).add(new THREE.Vector3(0, 1.3, 0)).project(camera);
+    camera.updateMatrixWorld(); projected.copy(position).add(new THREE.Vector3(0, 1.3, 0)).project(camera);
     return projected.z > -1 && projected.z < 1 && Math.abs(projected.x) < .94 && Math.abs(projected.y) < .92;
+  };
+  const spawnBoss = () => {
+    if (bossSpawned || state.phase !== 'playing' || state.boss !== 'active') return;
+    rebuildNavigation();
+    const p = hero.root.position, candidates: { x: number; z: number; score: number }[] = [];
+    for (const radius of [12, 10, 14]) for (let i = 0; i < 96; i++) {
+      const angle = yaw + Math.PI + i / 96 * Math.PI * 2, x = p.x + Math.sin(angle) * radius, z = p.z + Math.cos(angle) * radius;
+      if (!canMove(x, z, .5) || nav[navIndex(x, z)] < 0) continue;
+      const visible = onScreen(new THREE.Vector3(x, world.groundHeight(x, z), z));
+      // A clear approach gets preference, but a path around a district is valid too.
+      candidates.push({ x, z, score: (visible ? 0 : 100) + (lineClear(p.x, p.z, x, z, .5) ? 0 : 10) + Math.abs(radius - 12) + i * .001 });
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    const location = candidates[0]; if (!location) return; // Retry next active frame if a construction relocation has invalidated the field.
+    spawnEnemy(location.x, location.z, 'boss'); bossSpawned = true;
+    showHint(`${BOSS_NAME}! Defeat him before the last 30 seconds run out. Dodge the red slam.`, 8, true);
   };
   const fireEnemyArrow = (enemy: Enemy) => {
     const position = enemy.actor.root.position, dx = enemy.aimX - position.x, dz = enemy.aimZ - position.z, length = Math.hypot(dx, dz);
@@ -478,17 +519,21 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       if (state.phase !== 'playing') break;
       const stats = ENEMY_STATS[enemy.kind], position = enemy.actor.root.position, dx = p.x - position.x, dz = p.z - position.z, range = Math.hypot(dx, dz);
       const beforeX = position.x, beforeZ = position.z; enemy.hit = Math.max(0, enemy.hit - dt); enemy.cooldown = Math.max(0, enemy.cooldown - dt); let moving = false;
-      const archer = enemy.kind === 'archer', clear = range < 18 && lineClear(position.x, position.z, p.x, p.z, .15);
+      const archer = enemy.kind === 'archer', boss = enemy.kind === 'boss', enraged = boss && enemy.hp <= enemy.maxHp / 2, clear = range < 18 && lineClear(position.x, position.z, p.x, p.z, .15);
+      if (enraged && !enemy.enraged) { enemy.enraged = true; showHint('The Warlord is enraged! His slams are faster.', 4, true); }
       if (enemy.windup > 0) {
         enemy.windup = Math.max(0, enemy.windup - dt);
         if (enemy.windup === 0) {
           if (archer) { if (range < 19) fireEnemyArrow(enemy); }
-          else if (range < stats.range && clear) hurtHero(Math.round(stats.damage * difficulty.damageScale));
-          enemy.cooldown = stats.cooldown; enemy.actor.aimLine.visible = false;
+          else {
+            if (boss) impact(position.x, position.z, stats.range, '#ff5146', true);
+            if (range < stats.range && clear) hurtHero(Math.round(stats.damage * difficulty.damageScale * (enraged ? 1.2 : 1)));
+          }
+          enemy.cooldown = stats.cooldown * (enraged ? .65 : 1); enemy.actor.aimLine.visible = false;
         }
       } else if (enemy.cooldown <= 0 && clear && (archer ? range > 5 && range < 16 && onScreen(position) : range < stats.range - .35)) {
-        enemy.windup = stats.windup; enemy.aimX = p.x; enemy.aimZ = p.z;
-      } else if (archer ? range > 12 || range < 6 || !clear || !onScreen(position) : range > stats.range - .55) {
+        enemy.windup = stats.windup * (enraged ? .8 : 1); enemy.aimX = p.x; enemy.aimZ = p.z;
+      } else if (archer ? range > 12 || range < 6 || !clear || !onScreen(position) : range > stats.range - .55 || !clear) {
         let tx = p.x, tz = p.z;
         if (archer && range < 6 && range > .1) { tx = position.x - dx / range * 4; tz = position.z - dz / range * 4; }
         else if (!lineClear(position.x, position.z, tx, tz)) {
@@ -505,7 +550,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
         if (distance > .08) {
           let vx = (tx - position.x) / distance, vz = (tz - position.z) / distance;
           for (const other of enemies) if (other !== enemy) { const ox = position.x - other.actor.root.position.x, oz = position.z - other.actor.root.position.z, gap = Math.hypot(ox, oz); if (gap > .01 && gap < 1.1) { vx += ox / gap * (1.1 - gap) * 1.7; vz += oz / gap * (1.1 - gap) * 1.7; } }
-          const speed = Math.min(stats.speed * difficulty.speedScale * dt, distance), length = Math.hypot(vx, vz) || 1; move(position, vx / length * speed, vz / length * speed, .4); moving = true;
+          const speed = Math.min(stats.speed * difficulty.speedScale * (enraged ? 1.3 : 1) * dt, distance), length = Math.hypot(vx, vz) || 1; move(position, vx / length * speed, vz / length * speed, .4); moving = true;
         }
       }
       enemy.vx = (position.x - beforeX) / dt; enemy.vz = (position.z - beforeZ) / dt;
@@ -628,11 +673,11 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
         }
       } else if (advisor.action === 'follow' || advisor.action === 'fight') {
         const p = hero.root.position;
-        const target = advisor.action === 'fight' ? enemies.filter(enemy => Math.hypot(enemy.actor.root.position.x - p.x, enemy.actor.root.position.z - p.z) < 19).sort((a, b) => a.actor.root.position.distanceToSquared(position) - b.actor.root.position.distanceToSquared(position))[0] : undefined;
+        const target = advisor.action === 'fight' ? enemies.filter(enemy => Math.hypot(enemy.actor.root.position.x - p.x, enemy.actor.root.position.z - p.z) < 19).sort((a, b) => Number(b.kind === 'boss') - Number(a.kind === 'boss') || a.actor.root.position.distanceToSquared(position) - b.actor.root.position.distanceToSquared(position))[0] : undefined;
         if (target) {
-          const targetPosition = target.actor.root.position, range = Math.hypot(targetPosition.x - position.x, targetPosition.z - position.z), ranged = advisor.config.id === 'mira';
-          advisor.description = ranged ? 'Covering you with bow fire' : 'Intercepting a raider';
-          if (range > (ranged ? 12 : 2.65) || !lineClear(position.x, position.z, targetPosition.x, targetPosition.z, .15)) walkCompanion(advisor, targetPosition.x, targetPosition.z, dt, ranged ? 10 : 2.1);
+          const targetPosition = target.actor.root.position, range = Math.hypot(targetPosition.x - position.x, targetPosition.z - position.z), ranged = advisor.config.id === 'mira', clear = lineClear(position.x, position.z, targetPosition.x, targetPosition.z, .15);
+          advisor.description = target.kind === 'boss' ? `Attacking the ${BOSS_NAME}` : ranged ? 'Covering you with bow fire' : 'Intercepting a raider';
+          if (range > (ranged ? 12 : 2.65) || !clear) walkCompanion(advisor, targetPosition.x, targetPosition.z, dt, clear ? ranged ? 10 : 2.1 : .5);
           else if (advisor.cooldown <= 0) {
             advisor.actor.root.rotation.y = Math.atan2(targetPosition.x - position.x, targetPosition.z - position.z); advisor.attackTime = .42; advisor.cooldown = ranged ? 2.2 : 1.1;
             if (ranged) launchBow(position, targetPosition, state.stage >= 5 ? 2 : 1);
@@ -738,7 +783,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
         // so a slow frame cannot skip any of the next nine-second horse reveal.
         if (state.phase === 'playing') elapsed += state.timeLeft;
         visualTime += boundary; transition(advanceRun(state, rawDelta));
-        world.update(visualTime, 0, state, elapsed < markedUntil);
+        if (state.outcome !== 'fallen') world.update(visualTime, 0, state, elapsed < markedUntil);
       } else {
         const physicsTime = Math.min(rawDelta, .24), skipped = rawDelta - physicsTime;
         if (skipped > 0 && state.phase !== 'ready') {
