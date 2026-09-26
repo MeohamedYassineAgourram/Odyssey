@@ -1,0 +1,20 @@
+{
+  "assets": [
+    {
+      "path": "intro.wav",
+      "model": "default",
+      "provider": "Gradium",
+      "prompt": "Troy begins with us. Raise a house, finish contracts, and build as much as you can before the bell. Raiders are coming. Keep your sword close, and be careful what you let through the gates.",
+      "bytes": 1175084,
+      "generatedAt": "2026-09-26T14:12:40.805Z"
+    },
+    {
+      "path": "cover.jpg",
+      "model": "gemini-3.1-flash-image",
+      "provider": "Google",
+      "prompt": "Original cinematic game key art, landscape 16:9, no typography or logos. TROY: a beautiful ancient Greek coastal city being built from scratch against impossible odds. On the right third a courageous young Greek female city founder with olive skin, dark braided hair, bronze bracers, ivory linen tunic and rich teal cape holds a rolled architectural plan and a bronze sword at her hip. She surveys marble construction sites, partly built Doric temples, terracotta houses, slender stone watchtowers, timber cranes and golden dust in sunlight. A mysterious enormous wooden Trojan Horse waits beyond the distant gate, barely noticed, ominous but with playful adventure tone. Turquoise Aegean sea, olive trees, warm peach sunset, fine painterly realistic stylized 3D game art, gorgeous materials, bronze-gold highlights. Left third dark teal atmospheric negative space suitable for overlay heading. Rich depth, cinematic lighting, sophisticated detail. No volcano, no modern elements, no recognizable copyrighted game characters, no letters or watermark.",
+      "bytes": 3060415,
+      "generatedAt": "2026-09-26T14:12:53.200Z"
+    }
+  ]
+}

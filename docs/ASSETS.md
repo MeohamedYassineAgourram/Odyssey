@@ -1,36 +1,49 @@
-# THE LAST ORACLE assets
+# TROY 120 assets
 
-The 3D island, buildings, characters, ocean, lighting and effects are implemented in `app/oracle/`. The bundled resources below were produced through real Google and Gradium calls on September 26, 2026. Playback and loading do not make new generation requests.
+The procedural city, buildings, horse finales, combat, ocean, lighting, and effects live in `app/troy/`, with reusable character models under `app/oracle/`. Bundled resources below were generated through real Google and Gradium calls on September 26, 2026. Loading and playback make no generation requests.
 
-All current generated files are in [`public/oracle/`](../public/oracle/).
+## New Troy assets
 
-| Files | Provider / model | Purpose |
+| File | Provider / model | Purpose |
 | --- | --- | --- |
-| `cover.jpg` | Google / `gemini-3.1-flash-image` | Original game key art |
-| `lyra.jpg`, `mira.jpg`, `theron.jpg` | Google / `gemini-3.1-flash-image` | Original character portraits |
+| [public/troy/cover.jpg](../public/troy/cover.jpg) | Google / `gemini-3.1-flash-image` | Coastal Troy city-building key art |
+| [public/troy/intro.wav](../public/troy/intro.wav) | Gradium / `default` | New 12.24-second city-building introduction |
+
+The [Troy manifest](../public/troy/manifest.json) records provider, model, exact prompt or narration, timestamp, and original output bytes. The new narration introduces houses, contracts, the bell, and raiders.
+
+## Reused generated assets
+
+These files remain under [public/oracle/](../public/oracle/) and are used by Troy.
+
+| Files | Provider / model | Current purpose |
+| --- | --- | --- |
+| `lyra.jpg`, `mira.jpg`, `theron.jpg` | Google / `gemini-3.1-flash-image` | Founder, healer, and architect portraits |
 | `marble.jpg`, `sky.jpg` | Google / `gemini-3.1-flash-image` | Architectural texture and sky artwork |
-| `music-explore.mp3` | Google / `lyria-3-clip-preview` | Original exploration score, 30.772 seconds |
-| `music-sanctuary.mp3` | Google / `lyria-3-clip-preview` | Original sanctuary score, 27.324 seconds |
-| `intro.wav` | Gradium / `default` | Spoken opening, 12.24 seconds |
+| `music-explore.mp3` | Google / `lyria-3-clip-preview` | Building/battle score, 30.772 seconds |
+| `music-sanctuary.mp3` | Google / `lyria-3-clip-preview` | Finale score, 27.324 seconds |
 
-The music prompts request instrumental lyre, harp, wooden flute, strings and restrained percussion, with no lyrics or modern synthesis. Exploration music plays during scavenging; sanctuary music accompanies camp. The introduction uses the configured Gradium voice. Live conversations use `/api/voice`; browser speech is labeled separately if that provider is unavailable.
+Music prompts requested instrumental lyre, harp, wooden flute, strings, and restrained percussion. The sanctuary filename is retained; Troy has no sanctuary phase. Earlier ORACLE cover/narration remain compatibility assets, replaced by the Troy files in the interface.
 
-[`manifest.json`](../public/oracle/manifest.json) records each asset's provider, model, exact prompt or spoken text, generation timestamp and original byte count. JPEGs were subsequently resized and compressed with macOS `sips` for delivery; this optimization did not regenerate them. Manifest byte counts describe the original provider output and may differ from the optimized files. Credentials are not recorded.
+The [ORACLE manifest](../public/oracle/manifest.json) preserves reused generation records. JPEG delivery files may be resized/compressed with macOS `sips`; manifest byte counts describe original provider output and may differ from delivered sizes. Credentials are never recorded. Live dialogue uses `/api/voice`; browser speech fallback is labeled separately.
 
 ## Generate missing assets
 
-The script reads server credentials from the environment or ignored `.env`. It preserves files that already exist and calls a provider only for missing assets selected by the command. Generation is not part of a build or normal gameplay.
+Scripts read server credentials from the environment or ignored `.env`. They preserve existing files. Generation is separate from builds and gameplay; missing assets require provider calls and spend credits.
 
 ```bash
-node scripts/generate-oracle-assets.mjs all
+node scripts/generate-troy-assets.mjs
+```
+
+This considers both Troy `cover.jpg` and `intro.wav`; it has no per-file selector. The cover requires `GEMINI_API_KEY`; narration requires `GRADIUM_API_KEY` and uses `GRADIUM_VOICE_ID` when configured. To regenerate intentionally, move the existing file aside first. Provenance is written to the Troy manifest.
+
+For reused assets:
+
+```bash
 node scripts/generate-oracle-assets.mjs images
 node scripts/generate-oracle-assets.mjs music
-node scripts/generate-oracle-assets.mjs voice
 node scripts/generate-oracle-assets.mjs lyra.jpg
 ```
 
-Image and music generation require `GEMINI_API_KEY`; speech generation requires `GRADIUM_API_KEY`. The script fixes the models listed above and uses `GRADIUM_VOICE_ID` when configured. Generating a missing asset spends provider credits. To intentionally replace an asset, move the existing file aside before selecting its filename. Output provenance is written to the manifest.
+Its `all`/`voice` modes also generate old ORACLE cover/narration if missing; use the Troy script for current title art and introduction. `public/generated/` and ECHO SHIFT resources belong to the previous game.
 
-Files under `public/generated/`, the former ECHO SHIFT mission library and its older generation scripts belong to the previous game. They are retained compatibility resources and do not document the current ORACLE experience.
-
-Provider references: [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation), [Lyria music generation](https://ai.google.dev/gemini-api/docs/music-generation), and [Gradium speech REST guide](https://docs.gradium.ai/guides/text-to-speech-rest).
+Provider references: [Gemini images](https://ai.google.dev/gemini-api/docs/image-generation), [Lyria music](https://ai.google.dev/gemini-api/docs/music-generation), [Gradium speech](https://docs.gradium.ai/guides/text-to-speech-rest).

@@ -18,15 +18,15 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = (incoming.get("x-forwarded-host") || incoming.get("host") || "localhost:3000").split(",")[0].trim();
   const protocol = host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
   const base = new URL(`${protocol}://${host}`);
-  const title = "The Last Oracle — An Aegean Survival Story";
-  const description = "One minute to gather. Five days to endure. Explore an ancient Greek island in 3D, rescue companions, speak with your hero, and keep the beacon alive.";
-  const image = new URL("/oracle/cover.jpg", base).toString();
+  const title = "Troy 120 — Two Minutes to Legend";
+  const description = "Build Troy from scratch in 120 seconds. Complete contracts, earn materials, fight raiders, and discover four unpredictable Trojan Horse finales. Cities fall. Your legend stays.";
+  const image = new URL("/troy/cover.jpg", base).toString();
   return {
     metadataBase: base, title, description,
     icons: { icon: "/oracle/lyra.jpg" },
     openGraph: {
-      type: "website", title, description, siteName: "The Last Oracle", url: base.toString(),
-      images: [{ url: image, alt: "The Last Oracle — Lyra looks over an ancient Mediterranean island as a distant volcano awakens." }],
+      type: "website", title, description, siteName: "Troy 120", url: base.toString(),
+      images: [{ url: image, alt: "Troy 120 — Lyra builds a coastal Greek city while a mysterious wooden horse waits beyond the gates." }],
     },
     twitter: { card: "summary_large_image", title, description, images: [image] },
   };

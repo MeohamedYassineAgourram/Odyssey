@@ -1,8 +1,8 @@
-# THE LAST ORACLE
+# TROY 120
 
-**One minute. Five days. A final hope.** An original 3D survival adventure set on an ancient Greek island threatened by a volcanic eruption. Play as Lyra, gather supplies, rescue Mira and Theron, and lead the party through five days in a sanctuary. Build a beacon before the rescue ship passes.
+**Build a city. Defy the odds. Trust no horse.** A two-minute 3D city-building action game. Begin with empty plots, complete contracts to fund construction, fight raiders, and build as much of Troy as you can before the bell.
 
-The island uses Three.js geometry, animated characters, lighting, particles, and an ocean shader. Google-generated portraits, textures and Lyria music accompany the game. Lyra, Mira and Theron support contextual Gemini conversations and Gradium speech. The core game and bundled assets work without provider keys; unavailable conversations use a clearly labeled local story guide.
+Three.js powers the city, animated characters, combat, ocean, lighting, and four horse finales. Gemini supplies contextual conversations and generated artwork; Lyria supplies bundled music; Gradium supplies narration and live speech. The game and bundled assets work without provider keys, with labeled local advice when live dialogue is unavailable.
 
 ## Run locally
 
@@ -13,62 +13,77 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by the server. No database is needed. For live conversations and speech, copy `.env.example` to `.env` only if it does not already exist, fill in the relevant keys, and restart the server. Preserve any existing credentials.
+Open the printed URL. No database is needed. For live conversations and speech, copy `.env.example` to `.env` only if it does not already exist, fill in the relevant keys, and restart. Preserve existing credentials.
 
-## Play
+## Build your Troy
 
-| Control | Action |
+Each run starts with **120 seconds, 100 health, 3 timber, 2 stone, and 0 bronze**. Select a blueprint, approach one of 12 empty plots, and interact. Timber and stone deposits provide 3 units; bronze provides 2. Deposits replenish after 7 seconds.
+
+| Building | Timber / stone / bronze | Renown | Effect |
+| --- | --- | --- | --- |
+| Trojan house | 3 / 1 / 0 | 100 | Affordable construction |
+| Timber yard | 2 / 2 / 0 | 140 | Produces 1 timber every 8 seconds |
+| Watchtower | 3 / 3 / 1 | 230 | Automatically shoots nearby raiders |
+| Temple of Troy | 4 / 4 / 2 | 400 | Restores 4 health every 8 seconds, up to 100 |
+
+Eight contracts reward construction, collecting from three deposits, and defeating three raiders. Each pays fixed materials and renown automatically, exactly once. Your first house returns 4 timber, 3 stone, and 1 bronze plus 60 contract points.
+
+Strike nearby enemies, dodge their attack warnings, and use watchtowers for support. Every defeated raider earns 35 points, including tower kills. Zero health ends the run immediately; its score is not banked.
+
+At the deadline, the Trojan horse always destroys Troy in one of four nine-second finales. Survive to bank building, contract, and combat points plus a **200-point survival bonus**. The next city starts empty. Best score, banked total, completed runs, and discovered endings persist in this browser. The next run excludes the previous selected disaster. Conversations, menus, and pausing stop the clock.
+
+## Controls
+
+| Keyboard / mouse / touch | Action |
 | --- | --- |
 | WASD / arrow keys | Move Lyra |
 | Shift | Sprint while stamina lasts |
-| E / interaction button | Collect supplies, rescue a companion, or enter the sanctuary |
-| Drag / scroll | Orbit / zoom the camera |
-| Escape / pause button | Pause or resume; Escape closes an open dialogue |
-| Character portraits | Talk to Lyra or a rescued companion |
-| Microphone button | Dictate a message when browser speech recognition is available |
-| Speaker button | Mute or enable music and speech |
-| On-screen arrows | Move on touch devices |
+| E / interaction button | Gather, build, or speak to a nearby advisor |
+| F / Space | Strike nearby raiders |
+| C | Dodge |
+| Q / R / blueprint buttons | Select a building |
+| T | Talk to Lyra |
+| Tab | Open city contracts |
+| Drag / scroll | Orbit / zoom |
+| Escape | Pause/resume; close dialogue |
+| Microphone / speaker buttons | Dictation / sound |
+| On-screen arrows and action buttons | Touch movement, interaction, and combat |
 
 ### Xbox controller
 
-Pair your Xbox Wireless Controller with the computer over Bluetooth or connect it by USB. Open the game, then press and release a controller button to let the browser detect it. The connected indicator and Xbox prompts appear automatically. Press A to begin.
+Pair by Bluetooth or connect by USB, then press and release a button for browser detection. The indicator and Xbox prompts appear automatically. Press A to begin.
 
-| Controller input | Action |
+| Input | Action |
 | --- | --- |
-| Left stick | Move at an analog speed; navigate menus |
-| Right stick | Orbit the camera; scroll open panels |
+| Left stick | Move; navigate menus |
+| Right stick | Orbit; scroll panels |
 | RT / left-stick click | Sprint |
-| A | Interact in the world; confirm the highlighted menu action |
-| B | Close dialogue/journal or resume from pause |
-| X | Talk to the selected character; start/stop dictation inside a conversation |
-| Y | Reveal supplies; open/close the sanctuary journal |
-| LB / RB | Select a rescued companion or Lyra; switch character in conversations |
-| D-pad | Navigate choices, rations, actions, and suggested replies |
-| Menu (☰) | Pause/resume; close an open dialogue |
-| View | Open the controls guide |
+| A | Gather/build/interact; confirm highlighted menu action |
+| X | Attack; start/stop dictation in conversations |
+| B | Dodge; close dialogue or resume from pause |
+| Y | Talk to the nearby advisor, or Lyra |
+| LB / RB | Change blueprint; switch character in conversations |
+| D-pad up | Open contracts |
+| D-pad | Navigate menus and suggested replies |
+| Menu | Pause/resume; close dialogue |
+| View | Open controls |
 
-The pause menu includes sound and credits. Suggested dialogue replies work entirely from the controller; free-form messages can use microphone dictation where available. A browser audio or microphone permission may require an initial click. The game displays an audio enable button if playback is blocked.
+Suggested replies work from the controller. Free-form dictation requires browser speech recognition. Browser audio or microphone permission may require an initial click. The interface offers an enable-sound button when playback is blocked.
 
-Stick dead zones prevent drift; action buttons activate once per press. Disconnecting pauses play. Reconnect, release held controls, and press Menu or select Continue to resume. Supported devices must expose the browser's standard Gamepad mapping. Keyboard, mouse, and touch controls remain available. Implementation follows the [standard Gamepad layout](https://w3c.github.io/gamepad/#remapping) and [browser Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API/Using_the_Gamepad_API).
-
-Gather food, water, herbs and timber during the 60-second supply run. Aim for five food, five water and six timber; find Mira and Theron, then enter the glowing sanctuary before the ash arrives. Conversations pause the supply run.
-
-At camp, make one story decision each day before resting. The whole party shares **one food and one water per night**, regardless of its size. Missing food costs 14 health and 7 hope; missing water costs 22 health and 10 hope. Two timber build one beacon stage, and one herb restores 20 health. Building and healing can be repeated while resources and their caps allow. Mira improves treatment and gathering choices; Theron improves salvage and construction choices.
-
-**Win by surviving the fifth night with health above zero and a three-stage beacon.** Running out of health or reaching the final night without the beacon ends the journey.
+Stick dead zones prevent drift; actions activate once per press. Disconnecting pauses play. Reconnect, release held controls, then press Menu or select Continue. Controllers must expose the standard browser Gamepad mapping. Keyboard, mouse, and touch remain available.
 
 ## Provider settings
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | Live character conversations; image/music generation | Local dialogue without a key |
+| `GEMINI_API_KEY` | Live conversations; asset-generation scripts | Local dialogue without a key |
 | `GEMINI_MODEL` | Conversation model | `gemini-3.8-flash` |
-| `GRADIUM_API_KEY` | Live character speech; introduction generation | Labeled browser speech fallback |
+| `GRADIUM_API_KEY` | Live speech; narration generation | Labeled browser speech fallback |
 | `GRADIUM_VOICE_ID` | Gradium voice | `YTpq7expH9539ERJ` |
 | `GRADIUM_MODEL` | Live speech model | `default` |
-| `DEVIN_API_KEY` | Retained legacy workshop endpoint | Not connected to this game |
+| `DEVIN_API_KEY` | Retained legacy workshop endpoint | Not connected to Troy |
 
-Keys remain on the server. `/api/status` exposes configuration flags, not credentials. Gemini replies are labeled only after a successful provider response; local dialogue and browser speech have separate labels. Google and Gradium are actively used. Cognition's legacy workshop is not connected to ORACLE, YG's offering is unidentified, and Voodoo is credited as an event host. This build does not claim technical use of every sponsor. See [sponsor details](docs/SPONSORS.md).
+Keys remain server-side. `/api/status` reports configuration flags, not proof of a successful call. `/api/troy/converse` accepts bounded Troy context and history; replies can provide text or reveal deposits. Dialogue cannot grant resources or change health, score, buildings, or time. Google and Gradium power this build; other partners are acknowledged without claiming technical integration. See [sponsor details](docs/SPONSORS.md).
 
 ## Development and verification
 
@@ -79,10 +94,8 @@ npm run lint
 npm run build
 ```
 
-Automated tests, type checking, lint and production build passed. HTTP checks returned 200 for the page and bundled assets. Tests cover survival boundaries, immutable state, resources, request validation, provider contracts and fallbacks; they use mocked provider responses and do not spend credits. A separate live `/api/converse` request returned `source: "gemini"` and `action: "mark_supplies"`. The bundled artwork, music and introduction were generated through real provider calls on September 26, 2026. Browser visual testing was unavailable, so these checks are not a claim of completed browser playtesting.
+Tests cover immutable construction and economy, exact mission rewards, production, combat deaths, ending selection, deadline/finale boundaries, API validation, and mocked provider contracts and fallbacks. Provider tests spend no credits. Controller tests use simulated standard Gamepad snapshots. These checks do not establish completed browser playtesting or physical Xbox controller testing.
 
-`app/page.tsx` contains the interface, `app/oracle/` contains the world, characters, engine and survival rules, and `app/api/` contains server integrations. The application uses React, TypeScript, Three.js and vinext. Sites hosting configuration remains in `.openai/hosting.json`; publishing is managed through Sites.
+`app/page.tsx` contains the UI; `app/troy/` contains the city, engine, configuration, and rules. Reusable character models and controller support remain under `app/oracle/`. The app uses React, TypeScript, Three.js, and vinext. Sites hosting configuration is in `.openai/hosting.json`.
 
-To generate missing bundled assets, run `node scripts/generate-oracle-assets.mjs all`. It preserves existing files and spends provider credits only for missing selected assets. See [asset provenance and generation options](docs/ASSETS.md). Older ECHO SHIFT files remain for compatibility and are not features of the current game.
-
-Controller validation uses simulated standard Gamepad snapshots for stick ranges, button edges, repeat timing, focus/visibility changes, and disconnect/reconnect behavior. A physical Xbox controller has not been tested in this environment.
+New cover art and narration under `public/troy/` were generated through real Google and Gradium calls on September 26, 2026. `node scripts/generate-troy-assets.mjs` generates only missing Troy cover/narration files and spends provider credits. Retained portraits, sky, marble, and Lyria music are reused. See [asset provenance](docs/ASSETS.md). Older ORACLE survival routes and ECHO SHIFT resources remain compatibility code; their gameplay is not part of TROY 120.
