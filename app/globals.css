@@ -173,6 +173,19 @@ svg { display: block; flex-shrink: 0; }
 .modal > .eyebrow { margin-right: 35px; font-size: 8px; color: #a4bcb0; }
 .modal h2 { margin: 18px 0 10px; font-size: 42px; font-weight: 500; letter-spacing: -1.8px; line-height: 1.1; }
 .modal-intro { margin: 0 0 25px; max-width: 460px; font-size: 12px; line-height: 1.8; color: #aabeb6; }
+.mission-library { margin-bottom: 26px; }
+.mission-library-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mission-library-heading h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.mission-library-heading > span { display: flex; align-items: center; gap: 5px; color: var(--lime); font-family: var(--font-geist-mono), monospace; font-size: 7px; letter-spacing: .5px; }
+.mission-library > p { margin: 9px 0 14px; color: #a8bdb4; font-size: 10px; line-height: 1.8; }
+.mission-grid { display: grid; gap: 9px; }
+.mission-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 15px; padding: 14px; border: 1px solid rgb(213 239 225 / 15%); border-radius: 4px; background: rgb(219 255 115 / 3%); }
+.mission-kind { color: #a4c099; font-family: var(--font-geist-mono), monospace; font-size: 7px; letter-spacing: .8px; }
+.mission-card h4 { margin: 5px 0; font-size: 15px; font-weight: 500; }
+.mission-card p { margin: 0; color: #a8bdb4; font-size: 10px; line-height: 1.7; }
+.mission-card button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 10px; border: 1px solid rgb(219 255 115 / 24%); border-radius: 3px; background: rgb(219 255 115 / 6%); color: var(--lime); white-space: nowrap; font-size: 9px; }
+.mission-card button:hover:not(:disabled) { background: rgb(219 255 115 / 14%); border-color: rgb(219 255 115 / 48%); }
+.mission-card button:disabled { cursor: wait; opacity: .5; }
 .manual-steps { border-top: 1px solid var(--line); }
 .manual-steps > div { display: flex; align-items: flex-start; gap: 18px; padding: 23px 0; border-bottom: 1px solid var(--line); }
 .manual-steps > div > span { padding-top: 3px; font-family: var(--font-geist-mono), monospace; color: var(--lime); font-size: 10px; }
@@ -354,6 +367,9 @@ svg { display: block; flex-shrink: 0; }
   .modal > .eyebrow { font-size: 6px; letter-spacing: 1px; }
   .modal h2 { font-size: 34px; margin-top: 23px; }
   .modal-intro { font-size: 11px; }
+  .mission-library-heading { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .mission-card { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; }
+  .mission-card button { justify-self: start; min-height: 40px; }
   .manual-steps > div { gap: 12px; padding: 20px 0; }
   .manual-steps h3 { font-size: 14px; }
   .manual-steps p { font-size: 10px; }

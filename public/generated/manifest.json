@@ -1,0 +1,118 @@
+{
+  "assets": [
+    {
+      "path": "app/game/generated-missions.json",
+      "model": "gemini-3.8-flash",
+      "prompt": "Write exactly three distinct selectable missions for ECHO SHIFT, a premium 3D hovercraft game. Setting: an endless dark teal ocean, floating basalt ruins, luminous cyan crystals and ancient lime circular portals. Voice: restrained, evocative science fiction radio, no jokes or marketing cliches. Each mission has a lowercase kebab-case id, a two or three-word title (at most 26 characters), a briefing addressed to the pilot (at most 150 characters), and one event chosen from calm, storm, riches, turbo. Use one calm mission, one storm mission, one riches mission. The game always lasts 90 seconds, requires collecting at least 12 shards and surviving with shield remaining; do not invent enemies, items, maps or unsupported mechanics. The chosen event lasts the first 15 seconds only. Calm clears distant hazards and slows down, storm increases hazards and storm weather, riches doubles shard pickup and turns distant hazards into crystals. Make each briefing describe its supported starting event accurately and mention the 12-shard survival objective. Output only the requested JSON.",
+      "usage": {
+        "total_tokens": 415,
+        "total_input_tokens": 223,
+        "input_tokens_by_modality": [
+          {
+            "modality": "text",
+            "tokens": 223
+          }
+        ],
+        "total_cached_tokens": 0,
+        "total_output_tokens": 192,
+        "total_tool_use_tokens": 0,
+        "total_thought_tokens": 0,
+        "raw_prompt_token": 461,
+        "model_invocation_token_counts": [
+          {
+            "prompt_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 461
+              }
+            ],
+            "candidates_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 209
+              }
+            ]
+          }
+        ],
+        "non_grounding_model_invocation_token_counts": [
+          {
+            "prompt_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 461
+              }
+            ],
+            "candidates_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 209
+              }
+            ]
+          }
+        ]
+      },
+      "generatedAt": "2026-09-26T13:09:17.963Z",
+      "provider": "Google Gemini"
+    },
+    {
+      "path": "public/generated/drift-sky.jpg",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Generate an ultra-wide panoramic sky texture for the playable 3D game ECHO SHIFT. Sky only, no ground or ocean. Atmospheric science-fiction dawn sky, muted deep teal and ink-blue zenith transitioning smoothly into hazy dusty peach and pale desaturated mint near the bottom horizon. Elegant long wispy clouds, layered volumetric cloud banks far in the distance, subtle faint aurora, soft ambient light. High-end stylized 3D game environment art, painterly but physically plausible atmospheric detail. The composition is a continuous horizon panorama, horizon kept entirely at the bottom edge. No sun disk (the game renders its own sun), no buildings, islands, terrain, spaceships, planets, circles, portals, characters, typography, logos, UI or watermark. Avoid overly bright highlights, saturated purple, star fields and hard outlines. Quiet detailed sky, subtle variations, low contrast so in-game cyan crystals and lime portals stay legible. Both left and right edges should match seamlessly. Image is used as a distant sky sphere backdrop.",
+      "usage": {
+        "total_tokens": 1624,
+        "total_input_tokens": 208,
+        "input_tokens_by_modality": [
+          {
+            "modality": "text",
+            "tokens": 208
+          }
+        ],
+        "total_cached_tokens": 0,
+        "total_output_tokens": 1416,
+        "output_tokens_by_modality": [
+          {
+            "modality": "image",
+            "tokens": 1120
+          }
+        ],
+        "total_tool_use_tokens": 0,
+        "total_thought_tokens": 0,
+        "raw_prompt_token": 650,
+        "model_invocation_token_counts": [
+          {
+            "prompt_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 650
+              }
+            ],
+            "candidates_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 298
+              }
+            ]
+          }
+        ],
+        "non_grounding_model_invocation_token_counts": [
+          {
+            "prompt_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 650
+              }
+            ],
+            "candidates_tokens_details": [
+              {
+                "modality": "text",
+                "tokens": 298
+              }
+            ]
+          }
+        ]
+      },
+      "generatedAt": "2026-09-26T13:10:14.572Z",
+      "provider": "Google Gemini"
+    }
+  ]
+}

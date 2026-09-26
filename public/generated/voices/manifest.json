@@ -1,0 +1,23 @@
+{
+  "provider": "Gradium",
+  "model": "default",
+  "voice": "YTpq7expH9539ERJ",
+  "generatedAt": "2026-09-26T13:10:51.183Z",
+  "assets": [
+    {
+      "path": "still-tide.wav",
+      "text": "Still Tide. Hazards clear and drift slows for fifteen seconds. Gather twelve crystals and survive the full ninety.",
+      "bytes": 729644
+    },
+    {
+      "path": "gale-front.wav",
+      "text": "Gale Front. Storm fronts surge hazards for fifteen seconds. Secure twelve crystals and keep shields intact for ninety.",
+      "bytes": 760364
+    },
+    {
+      "path": "crystal-bloom.wav",
+      "text": "Crystal Bloom. Distant hazards transfigure into double crystal yields for fifteen seconds. Recover twelve and endure ninety.",
+      "bytes": 852524
+    }
+  ]
+}

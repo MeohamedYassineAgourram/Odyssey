@@ -1,0 +1,22 @@
+{
+  "missions": [
+    {
+      "id": "still-tide",
+      "title": "Still Tide",
+      "briefing": "Hazards clear and drift slows for fifteen seconds. Gather twelve crystals and survive the full ninety.",
+      "event": "calm"
+    },
+    {
+      "id": "gale-front",
+      "title": "Gale Front",
+      "briefing": "Storm fronts surge hazards for fifteen seconds. Secure twelve crystals and keep shields intact for ninety.",
+      "event": "storm"
+    },
+    {
+      "id": "crystal-bloom",
+      "title": "Crystal Bloom",
+      "briefing": "Distant hazards transfigure into double crystal yields for fifteen seconds. Recover twelve and endure ninety.",
+      "event": "riches"
+    }
+  ]
+}

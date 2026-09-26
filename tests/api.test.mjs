@@ -5,10 +5,11 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after } from 'node:test';
+import { normalizeCompletedWav } from '../app/lib/wav.js';
 
 const compiled = mkdtempSync(join(tmpdir(), 'echo-shift-tests-'));
 after(() => rmSync(compiled, { recursive: true, force: true }));
-execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--target', 'ES2022', '--module', 'commonjs', '--moduleResolution', 'node', '--lib', 'esnext,dom', '--types', 'node', '--skipLibCheck', '--esModuleInterop', '--outDir', compiled, 'app/api/director/route.ts', 'app/api/voice/route.ts', 'app/api/status/route.ts', 'app/game/rules.ts'], { stdio: 'pipe' });
+execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--target', 'ES2022', '--module', 'commonjs', '--moduleResolution', 'node', '--lib', 'esnext,dom', '--types', 'node', '--skipLibCheck', '--esModuleInterop', '--allowJs', '--outDir', compiled, 'app/api/director/route.ts', 'app/api/voice/route.ts', 'app/api/status/route.ts', 'app/game/rules.ts'], { stdio: 'pipe' });
 const require = createRequire(import.meta.url);
 const { POST: director } = require(join(compiled, 'api/director/route.js'));
 const { POST: voice } = require(join(compiled, 'api/voice/route.js'));
@@ -20,6 +21,22 @@ const request = (body, origin = 'http://localhost:3000') => new Request('http://
 
 // Provider credentials are replaced only within this test process.
 for (const key of ['GEMINI_API_KEY', 'GRADIUM_API_KEY', 'DEVIN_API_KEY']) delete process.env[key];
+
+test('completed streaming WAV lengths preserve PCM samples and intervening chunks', () => {
+  const streaming = Buffer.from('52494646ffffffff57415645666d7420100000000100010080bb000000770100020010004a554e4b040000006b65657064617461ffffffff01000200', 'hex');
+  const expected = Buffer.from(streaming);
+  expected.writeUInt32LE(expected.length - 8, 4);
+  expected.writeUInt32LE(4, 52);
+  // A pooled buffer has a nonzero byte offset, as generated assets often do.
+  assert.deepEqual(normalizeCompletedWav(streaming), expected);
+  assert.deepEqual(normalizeCompletedWav(streaming), expected);
+  const malformed = Buffer.from(expected);
+  malformed.writeUInt32LE(0xffffffff, 4);
+  malformed.writeUInt32LE(0xffffffff, 52);
+  malformed.writeUInt32LE(1000, 40);
+  const untouched = Buffer.from(malformed);
+  assert.deepEqual(normalizeCompletedWav(malformed), untouched);
+});
 
 test('mission boundaries require survival, enough shards, and completed extraction time', () => {
   assert.equal(missionOutcome(0, 0, 12), 'lost');

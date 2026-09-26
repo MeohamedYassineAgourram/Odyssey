@@ -1,5 +1,6 @@
 import { boundedText, errorResponse, guardRequest, json, readJson } from "../../lib/api-guard";
 import { serverEnv } from "../../lib/server-env";
+import { normalizeCompletedWav } from "../../lib/wav.js";
 
 // Finished director lines use the official one-shot REST endpoint.
 // https://docs.gradium.ai/guides/text-to-speech-rest
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
       if (audio.byteLength < 44 || audio.byteLength > 8_000_000 || !signature.startsWith("RIFF") || !signature.endsWith("WAVE")) {
         throw new Error("Gradium returned invalid audio.");
       }
+      normalizeCompletedWav(new Uint8Array(audio));
       return new Response(audio, {
         headers: {
           "Content-Type": "audio/wav",

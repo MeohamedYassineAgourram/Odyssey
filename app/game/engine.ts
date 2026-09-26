@@ -43,8 +43,9 @@ const CYAN = 0x74fce0;
 const LIME = 0xe0ff81;
 const CORAL = 0xff7775;
 
-/** Everything in the world is procedural; no network or asset loading is needed. */
+/** The world starts procedurally, with an optional local generated sky. */
 export function createGame(container: HTMLElement, callbacks: GameCallbacks): GameHandle {
+  let disposed = false;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.65));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -75,25 +76,37 @@ export function createGame(container: HTMLElement, callbacks: GameCallbacks): Ga
   fill.position.set(10, 10, 20);
   scene.add(fill);
 
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(420, 32, 16),
-    new THREE.ShaderMaterial({
+  const skyMaterial = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
+      uniforms: { uSkyTexture: { value: null as THREE.Texture | null }, uSkyMix: { value: 0 } },
       vertexShader: `varying vec3 vDirection; void main(){vDirection=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-      fragmentShader: `varying vec3 vDirection;
+      fragmentShader: `uniform sampler2D uSkyTexture; uniform float uSkyMix; varying vec3 vDirection;
         void main(){
           vec3 d=normalize(vDirection);
           vec3 horizon=vec3(0.70,0.65,0.57);
           vec3 upper=vec3(0.075,0.17,0.225);
           vec3 col=mix(horizon,upper,smoothstep(-0.08,0.72,d.y));
+          if(uSkyMix>0.001){
+            vec2 skyUv=vec2(atan(d.x,-d.z)/6.2831853+0.5,clamp(0.1+asin(clamp(d.y,-1.0,1.0))*0.63662,0.0,1.0));
+            vec3 clouds=texture2D(uSkyTexture,skyUv).rgb*vec3(0.86,0.96,0.98);
+            col=mix(col,clouds,uSkyMix*smoothstep(-0.04,0.13,d.y));
+          }
           float glow=pow(max(0.0,dot(d,normalize(vec3(-0.18,0.07,-1.0)))),28.0);
           col+=vec3(0.17,0.10,0.055)*glow;
           gl_FragColor=vec4(col,1.0);
         }`,
-    }),
-  );
+    });
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(420, 32, 16), skyMaterial);
   scene.add(sky);
+  let skyLoaded = false;
+  const skyTexture = new THREE.TextureLoader().load("/generated/drift-sky.jpg", (texture) => {
+    if (disposed) { texture.dispose(); return; }
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    skyMaterial.uniforms.uSkyTexture.value = texture;
+    skyLoaded = true;
+  }, undefined, () => { /* The procedural sky remains available when the asset is absent. */ });
 
   const glowMaterial = (color: number, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, toneMapped: false });
   const basalt = new THREE.MeshStandardMaterial({ color: 0x203945, roughness: 0.9, metalness: 0.22, flatShading: true });
@@ -323,7 +336,6 @@ export function createGame(container: HTMLElement, callbacks: GameCallbacks): Ga
   const bursts: Burst[] = [];
   const burstGeometry = new THREE.OctahedronGeometry(0.13, 0);
   let state = initialSnapshot();
-  let disposed = false;
   let frame = 0;
   let lastTime = performance.now();
   let worldTime = 0;
@@ -472,6 +484,7 @@ export function createGame(container: HTMLElement, callbacks: GameCallbacks): Ga
     const paused = state.phase === "paused";
     const attract = state.phase === "ready";
     if (!paused) worldTime += dt;
+    skyMaterial.uniforms.uSkyMix.value = THREE.MathUtils.damp(skyMaterial.uniforms.uSkyMix.value, skyLoaded ? 0.76 : 0, 1.8, dt);
     const boostActive = playing && input.boost && state.boost > 0.5;
     const targetSpeed = playing ? (mode === "calm" ? 21 : mode === "turbo" ? 39 : 29) + (boostActive ? 20 : 0) : attract ? 3.4 : 0;
     currentSpeed = THREE.MathUtils.damp(currentSpeed, targetSpeed, 2.2, dt);
@@ -679,6 +692,7 @@ export function createGame(container: HTMLElement, callbacks: GameCallbacks): Ga
       geometries.add(burstGeometry);
       geometries.forEach((geometry) => geometry.dispose());
       materials.forEach((material) => material.dispose());
+      skyTexture.dispose();
       bloom.dispose();
       output.dispose();
       composer.dispose();
