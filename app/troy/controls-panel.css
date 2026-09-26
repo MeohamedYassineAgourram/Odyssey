@@ -1,0 +1,188 @@
+.controls-panel {
+  width: 100%;
+  min-width: 0;
+  color: #eee9d9;
+  font: 12px/1.45 Arial, Helvetica, sans-serif;
+  text-align: left;
+}
+
+.controls-panel .controls-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.controls-panel .controls-panel-title {
+  margin: 0;
+  color: #e6d0a4;
+  font: 500 17px/1.3 Arial, Helvetica, sans-serif;
+  letter-spacing: .1px;
+}
+
+.controls-panel .controls-panel-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #d5b67b38;
+  border-radius: 7px;
+  background: #0c2226;
+}
+
+.controls-panel .controls-panel-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 35px;
+  padding: 7px 12px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #bcc9c3;
+  font: 500 12px/1.3 Arial, Helvetica, sans-serif;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.controls-panel .controls-panel-switch button:hover {
+  background: #ffffff0b;
+  color: #f5e6c8;
+}
+
+.controls-panel .controls-panel-switch button[aria-pressed="true"] {
+  border-color: #d5b67b45;
+  background: #2c4543;
+  color: #f2d399;
+}
+
+.controls-panel .controls-panel-switch button:focus-visible {
+  outline: 2px solid #e4c48a;
+  outline-offset: 3px;
+}
+
+.controls-panel .controls-panel-content {
+  min-height: 0;
+  max-height: min(57dvh, 490px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #b79d6877 transparent;
+  padding: 1px 3px 2px 0;
+}
+
+.controls-panel .controls-panel-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.controls-panel .controls-panel-group-title {
+  margin: 0 0 8px;
+  color: #b9c9c0;
+  font: 500 12px/1.4 Arial, Helvetica, sans-serif;
+  letter-spacing: .3px;
+}
+
+.controls-panel .controls-panel-list,
+.controls-panel .controls-panel-menu-list {
+  padding: 0;
+  margin: 0;
+}
+
+.controls-panel .controls-panel-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 1.15fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 39px;
+  padding: 5px 0;
+  border-bottom: 1px solid #d5b67b12;
+}
+
+.controls-panel .controls-panel-row:last-child {
+  border-bottom-color: transparent;
+}
+
+.controls-panel .controls-panel-keys {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+}
+
+.controls-panel .controls-panel-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 27px;
+  padding: 0 7px;
+  border: 1px solid #d8d0ad55;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #203a3e;
+  color: #f0e4c9;
+  font: 500 14px/1 Arial, Helvetica, sans-serif;
+  letter-spacing: 0;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 #071a1d80;
+}
+
+.controls-panel .controls-panel-key-a { color: #c4e8a3; border-color: #a0c97c70; }
+.controls-panel .controls-panel-key-b { color: #f2b4a5; border-color: #e5938570; }
+.controls-panel .controls-panel-key-x { color: #b9dceb; border-color: #85bbd670; }
+.controls-panel .controls-panel-key-y { color: #f1d68f; border-color: #d2b65d70; }
+
+.controls-panel .controls-panel-action {
+  min-width: 0;
+  margin: 0;
+  color: #e0e3d8;
+  font: 400 12px/1.45 Arial, Helvetica, sans-serif;
+}
+
+.controls-panel .controls-panel-menus {
+  margin-top: 17px;
+  padding-top: 13px;
+  border-top: 1px solid #d5b67b30;
+}
+
+.controls-panel .controls-panel-menu-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+}
+
+.controls-panel .controls-panel-note {
+  margin: 12px 0 0;
+  color: #aebfb6;
+  font: 400 12px/1.55 Arial, Helvetica, sans-serif;
+}
+
+.controls-panel.controls-panel-compact .controls-panel-heading { margin-bottom: 11px; }
+.controls-panel.controls-panel-compact .controls-panel-title { font-size: 15px; }
+.controls-panel.controls-panel-compact .controls-panel-groups,
+.controls-panel.controls-panel-compact .controls-panel-menu-list { column-gap: 18px; }
+.controls-panel.controls-panel-compact .controls-panel-row { min-height: 36px; padding-block: 4px; }
+.controls-panel.controls-panel-compact .controls-panel-menus { margin-top: 12px; padding-top: 10px; }
+
+@media (max-width: 620px) {
+  .controls-panel .controls-panel-heading { gap: 10px; flex-wrap: wrap; }
+  .controls-panel .controls-panel-switch button { min-height: 38px; }
+  .controls-panel .controls-panel-content { max-height: min(54dvh, 460px); }
+  .controls-panel .controls-panel-groups,
+  .controls-panel .controls-panel-menu-list { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .controls-panel .controls-panel-group + .controls-panel-group { margin-top: 17px; }
+  .controls-panel .controls-panel-row { grid-template-columns: minmax(118px, .9fr) minmax(0, 1.2fr); min-height: 40px; }
+  .controls-panel .controls-panel-key { min-height: 28px; }
+  .controls-panel.controls-panel-compact .controls-panel-row { min-height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .controls-panel .controls-panel-switch button { transition: none; }
+}

@@ -42,7 +42,9 @@ export type TroySnapshot = RunState & {
 };
 export type ControllerInput = { x: number; y: number; lookX: number; lookY: number; sprint: boolean };
 export type TroyEngine = {
-  start(stage?: number, weapons?: WeaponKind[]): void; pause(): void; resume(): void; interact(): void; attack(): void; dodge(): void;
+  start(stage?: number, weapons?: WeaponKind[]): void;
+  endRun(): void; returnToMenu(stage?: number, weapons?: WeaponKind[]): void;
+  pause(): void; resume(): void; interact(): void; attack(): void; dodge(): void;
   buildAtPlot(plotId: string, kind: BuildingKind): boolean;
   selectWeapon(kind: WeaponKind): void; cycleWeapon(direction: number): void;
   commandCompanion(order: CompanionOrder): { accepted: boolean; message: string };

@@ -14,7 +14,7 @@ const sourceCache = new Map();
 // stubbed; advancing frames still executes real movement, AI and collision code.
 function fixture(stage = 1, weapons = ['sword'], seedBase = 123456) {
   let now = 0, frame, snapshot, scene, camera, world, updates = 0, disposedWorlds = 0, renders = 0, buildPlot = null;
-  const events = [], modules = new Map();
+  const events = [], snapshots = [], modules = new Map();
   class Renderer {
     shadowMap = {}; capabilities = { getMaxAnisotropy: () => 1 };
     setPixelRatio() {} setSize() {} dispose() {}
@@ -54,12 +54,12 @@ function fixture(stage = 1, weapons = ['sword'], seedBase = 123456) {
   };
   const api = load('app/troy/engine.ts'), maps = load('app/troy/maps.ts');
   const canvas = { getBoundingClientRect: () => ({ width: 1440, height: 900 }), addEventListener() {}, removeEventListener() {}, setPointerCapture() {} };
-  const engine = api.createTroyGame(canvas, { onReady() {}, onUpdate: value => { snapshot = value; }, onEvent: event => events.push(event), onTalk() {}, onBuildPlot: id => { buildPlot = id; engine.pause(); } }, undefined, stage, weapons);
+  const engine = api.createTroyGame(canvas, { onReady() {}, onUpdate: value => { snapshot = value; snapshots.push(value); }, onEvent: event => events.push(event), onTalk() {}, onBuildPlot: id => { buildPlot = id; engine.pause(); } }, undefined, stage, weapons);
   const jump = seconds => { now += seconds * 1000; frame(now); };
   const advance = seconds => { for (let remaining = seconds; remaining > 1e-8;) { const dt = Math.min(.02, remaining); jump(dt); remaining -= dt; } };
   jump(.01);
   return {
-    engine, api, events, jump, advance,
+    engine, api, events, snapshots, jump, advance,
     get state() { return snapshot; }, get scene() { return scene; }, get world() { return world; }, get camera() { return camera; },
     get buildPlot() { return buildPlot; },
     get map() { return maps.createCityMap(snapshot.stage, snapshot.seed); },
@@ -351,5 +351,70 @@ test('defeating the enraged boss credits exactly one kill and preserves the full
     const count = f.updates; f.jump(8.9); assert.equal(f.state.phase, 'disaster'); assert.ok(f.updates - count <= 6);
     f.jump(.2); assert.equal(f.state.phase, 'ended'); assert.equal(f.state.outcome, 'legend'); assert.equal(f.state.finaleTime, 9); assert.equal(f.state.score, 235);
     const score = f.state.score; f.engine.attack(); f.jump(2); assert.equal(f.state.score, score); assert.equal(f.state.kills, 1);
+  } finally { f.engine.destroy(); }
+});
+
+test('quitting paused play emits one loss and preserves earned rewards and weapons', () => {
+  const f = fixture(1, ['sword', 'bow']);
+  try {
+    const ready = f.state; f.engine.endRun(); assert.equal(f.state, ready, 'quitting the opening menu is a no-op');
+    f.engine.start(); const plot = f.map.plots[0]; f.teleport(plot.x, plot.z); assert.equal(f.engine.buildAtPlot(plot.id, 'house'), true);
+    const landmark = f.map.landmarks[0]; f.teleport(landmark.x, landmark.z); f.engine.interact();
+    const earned = f.state.score, elapsed = f.state.timeLeft, weapons = JSON.stringify(f.state.weapons); assert.ok(earned > 0);
+    f.engine.dodge(); f.engine.pause(); const snapshots = f.snapshots.length;
+    f.engine.endRun(); f.engine.endRun();
+    assert.equal(f.snapshots.length, snapshots + 1, 'repeated quit calls do not create duplicate completion transitions');
+    assert.equal(f.state.phase, 'ended'); assert.equal(f.state.outcome, 'fallen'); assert.equal(f.state.health, 0); assert.equal(f.state.paused, false);
+    assert.equal(f.state.timeLeft, elapsed); assert.equal(f.state.score, earned); assert.equal(JSON.stringify(f.state.weapons), weapons);
+    f.engine.attack(); f.engine.interact(); f.engine.resume(); f.jump(15); assert.equal(f.state.score, earned); assert.equal(f.state.timeLeft, elapsed);
+  } finally { f.engine.destroy(); }
+});
+
+test('return to menu clears a finished battle without emitting playing or allowing an active run reset', () => {
+  const f = fixture(1, ['sword', 'bow', 'hammer']);
+  try {
+    f.engine.start(); const seed = f.state.seed, count = f.snapshots.length;
+    f.engine.returnToMenu(4, ['sword']); assert.equal(f.state.phase, 'playing'); assert.equal(f.state.seed, seed); assert.equal(f.snapshots.length, count, 'active runs must be explicitly ended first');
+    f.engine.commandCompanion({ character: 'mira', action: 'fight' }); f.engine.commandCompanion({ character: 'theron', action: 'build', building: 'house' });
+    f.jump(90.01); const boss = f.raiders.find(enemy => enemy.userData.enemyKind === 'boss'); assert.ok(boss);
+    f.engine.selectWeapon('bow'); f.engine.attack(); const arrow = f.scene.getObjectByName('friendly-arrow'); assert.ok(arrow);
+    const previousWorld = f.world.root, previousAdvisor = f.scene.getObjectByName('mira');
+    f.engine.pause(); f.engine.endRun(); const ending = f.state.ending, before = f.snapshots.length, eventCount = f.events.length;
+    assert.equal(arrow.parent, null, 'quitting clears in-flight projectiles immediately');
+    f.engine.returnToMenu(3, ['sword', 'bow', 'hammer']);
+    assert.equal(f.snapshots.length, before + 1); assert.equal(f.snapshots.at(-1).phase, 'ready', 'reset exposes no transient playing state');
+    assert.equal(f.events.length, eventCount, 'returning produces no raid or start notices');
+    assert.equal(f.state.phase, 'ready'); assert.equal(f.state.stage, 3); assert.equal(f.state.timeLeft, 120); assert.equal(f.state.score, 0); assert.equal(f.state.health, 100);
+    assert.equal(f.state.paused, false); assert.equal(f.state.boss, 'waiting'); assert.equal(f.state.bossEnemy, null); assert.equal(f.state.enemyPositions.length, 0);
+    assert.equal(f.state.buildings.length, 0); assert.equal(f.state.attackCooldown, 0); assert.equal(f.state.dodgeCooldown, 0); assert.equal(f.state.wave, 0); assert.equal(f.state.hint, ''); assert.equal(f.state.nearest, null);
+    assert.equal(JSON.stringify(f.state.weapons), JSON.stringify(['sword', 'bow', 'hammer'])); assert.equal(f.state.weapon, 'sword');
+    assert.ok(f.state.companions.every(companion => companion.action === 'idle')); assert.equal(boss.parent, null); assert.equal(previousWorld.parent, null); assert.equal(previousAdvisor.parent, null);
+    assert.equal(f.scene.children.filter(object => object.userData.weaponKind).length, 0);
+    const camera = f.camera.position.clone(), player = f.hero.position.clone(), menu = f.state;
+    f.engine.setInput('forward', true); f.engine.setControllerInput({ x: 1, y: 1, lookX: 1, lookY: 1, sprint: true }); f.jump(30);
+    assert.equal(f.state.timeLeft, 120); assert.equal(f.state.productionTime, 0); assert.equal(f.hero.position.distanceTo(player), 0); assert.equal(f.camera.position.distanceTo(camera), 0, 'menu keeps the wide camera still');
+    f.engine.start(); assert.equal(f.state.phase, 'playing'); assert.equal(f.state.stage, menu.stage); assert.equal(f.state.weapons.length, 3); assert.notEqual(f.state.ending, ending, 'last completed ending remains excluded');
+    const spawn = f.hero.position.clone(); f.advance(.2); assert.equal(f.hero.position.distanceTo(spawn), 0, 'opening menu input does not leak into the new run');
+    assert.equal(f.state.boss, 'waiting'); assert.equal(f.state.score, 0); assert.equal(f.state.buildings.length, 0);
+  } finally { f.engine.destroy(); }
+});
+
+test('quitting a paused horse finale finalizes the earned victory exactly once', () => {
+  const f = fixture(1, ['sword', 'hammer']);
+  try {
+    f.engine.start(); f.engine.selectWeapon('hammer'); f.jump(90.01); const boss = f.raiders.find(enemy => enemy.userData.enemyKind === 'boss'); assert.ok(boss);
+    for (let hit = 0; hit < 12; hit++) {
+      for (const enemy of f.raiders) enemy.position.set(43, 0, -36); if (hit) f.advance(1.08);
+      boss.position.set(f.hero.position.x + 3, 0, f.hero.position.z); f.engine.attack();
+    }
+    assert.equal(f.state.boss, 'defeated'); f.jump(f.state.timeLeft + .2); assert.equal(f.state.phase, 'disaster');
+    f.advance(.6); f.engine.pause(); const score = f.state.score, count = f.snapshots.length, updates = f.updates;
+    f.engine.returnToMenu(); assert.equal(f.state.phase, 'disaster', 'a cinematic cannot be silently discarded');
+    f.engine.endRun(); f.engine.endRun();
+    assert.equal(f.snapshots.length, count + 1); assert.equal(f.state.phase, 'ended'); assert.equal(f.state.outcome, 'legend'); assert.equal(f.state.finaleTime, 9);
+    assert.equal(f.state.score, score + 200); assert.equal(f.state.survivalScore, 200); assert.equal(f.state.kills, 1); assert.equal(f.state.paused, false); assert.equal(f.updates, updates + 1, 'the final collapse is applied once');
+    f.jump(20); assert.equal(f.state.score, score + 200);
+    f.engine.returnToMenu(2, ['sword', 'hammer']); assert.equal(f.state.phase, 'ready'); assert.equal(f.state.stage, 2); assert.equal(f.state.weapons.length, 2);
+    f.engine.destroy(); const ended = f.snapshots.length; f.engine.endRun(); f.engine.returnToMenu(); assert.equal(f.snapshots.length, ended);
   } finally { f.engine.destroy(); }
 });

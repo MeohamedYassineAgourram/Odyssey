@@ -1,0 +1,15 @@
+{
+  "path": "briefing.wav",
+  "provider": "Gradium",
+  "model": "default",
+  "text": "I’m Lyra. Gather supplies, build, and fight for two minutes. The Warlord arrives with thirty seconds left. Defeat him before zero. Call our companions for help.",
+  "generatedAt": "2026-09-26T16:16:52.093Z",
+  "originalBytes": 1090604,
+  "normalization": "Completed streaming RIFF/data lengths normalized; PCM preserved.",
+  "durationSeconds": 9.5,
+  "format": "WAV, mono, 48000 Hz, 16-bit PCM",
+  "originalDurationSeconds": 11.36,
+  "tempoFactor": 1.22,
+  "processing": "Apple AVAudioUnitTimePitch offline at 1.22×, preserving pitch; removed only digital silence after 9.5 seconds.",
+  "bytes": 912044
+}

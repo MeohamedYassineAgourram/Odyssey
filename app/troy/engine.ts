@@ -412,9 +412,9 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     for (const item of loot) { scene.remove(item.root); disposeObject(item.root); } loot.length = 0;
     for (const effect of impacts) { scene.remove(effect.mesh); disposeObject(effect.mesh); } impacts.length = 0;
   };
-  const start = (nextStage = state.stage, weapons = state.weapons) => {
+  const resetRun = (phase: 'ready' | 'playing', nextStage: number, weapons: WeaponKind[]) => {
     if (destroyed) return;
-    const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0; state = createRun(seed, lastEnding, nextStage, weapons); randomValue = state.seed; lootRandomValue = (state.seed ^ 0x9e3779b9) >>> 0; bossSpawned = false; bossHintUntil = 0; syncHeldWeapon();
+    const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0; state = { ...createRun(seed, lastEnding, nextStage, weapons), phase }; randomValue = state.seed; lootRandomValue = (state.seed ^ 0x9e3779b9) >>> 0; bossSpawned = false; bossHintUntil = 0; syncHeldWeapon();
     paused = false; selected = 'house'; nearest = null; clearInput(); clearEnemies(); clearArrows(); clearEffects(); nodeReady.clear(); towerReady.clear();
     scene.remove(world.root); disposeObject(world.root, marbleTexture); world.dispose();
     for (const { actor, marker } of advisors) { scene.remove(actor.root, marker); disposeObject(actor.root); disposeObject(marker); }
@@ -425,7 +425,27 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     yaw = .13; pitch = .72; distance = 31; followTarget.copy(hero.root.position).add(new THREE.Vector3(0, 1.2, -1.6));
     slash.visible = false; dodgeRing.visible = false; prank.visible = false; crack.visible = false; gift.visible = true; giftBand.visible = true; warningCircle.visible = true;
     skyMaterial.uniforms.dusk.value = 0; waterUniforms.uDusk.value = 0; sun.intensity = 3.7; sun.color.set(map.theme === 'desert' ? '#ffdeb0' : '#fff0c8'); ambient.intensity = 2.2; scene.fog = new THREE.FogExp2(map.theme === 'desert' ? '#e4ceb0' : map.theme === 'forest' ? '#b9cec0' : '#cbd9ce', .003);
-    updateNearest(); emit(); sound('start'); lastFrame = performance.now();
+    if (phase === 'ready') {
+      const extent = Math.max(map.bounds.maxX - map.bounds.minX, map.bounds.maxZ - map.bounds.minZ);
+      camera.position.set(Math.sin(.27) * extent * .9, extent * .65, Math.cos(.27) * extent * .9);
+      camera.lookAt((map.bounds.minX + map.bounds.maxX) / 2, 1.2, (map.bounds.minZ + map.bounds.maxZ) / 2);
+    }
+    updateNearest(); emit(); if (phase === 'playing') sound('start'); lastFrame = performance.now();
+  };
+  const start = (nextStage = state.stage, weapons = state.weapons) => resetRun('playing', nextStage, weapons);
+  const returnToMenu = (nextStage = state.stage, weapons = state.weapons) => {
+    if (destroyed || (state.phase !== 'ready' && state.phase !== 'ended')) return;
+    resetRun('ready', nextStage, weapons);
+  };
+  const endRun = () => {
+    if (destroyed) return;
+    // Quit uses normal terminal rules and ignores temporary dodge immunity. The UI
+    // saves this final snapshot before returning to the menu; repeated calls do nothing.
+    if (state.phase === 'playing') transition(takeDamage(state, 100));
+    else if (state.phase === 'disaster') {
+      transition(advanceRun(state, FINALE_DURATION));
+      world.update(visualTime, 0, state, false);
+    }
   };
 
   // One cached occupancy grid and flood field serves all raiders across the larger map.
@@ -804,7 +824,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       }
     }
     if (!paused && state.phase !== 'ended') {
-      if (state.phase === 'ready') { const angle = .27 + Math.sin(visualTime * .07) * .06, extent = Math.max(map.bounds.maxX - map.bounds.minX, map.bounds.maxZ - map.bounds.minZ); cameraPosition.set(Math.sin(angle) * extent * .9, extent * .65, Math.cos(angle) * extent * .9); camera.position.lerp(cameraPosition, 1 - Math.exp(-frameDelta * 2)); camera.lookAt((map.bounds.minX + map.bounds.maxX) / 2, 1.2, (map.bounds.minZ + map.bounds.maxZ) / 2); }
+      if (state.phase === 'ready') { const angle = .27, extent = Math.max(map.bounds.maxX - map.bounds.minX, map.bounds.maxZ - map.bounds.minZ); cameraPosition.set(Math.sin(angle) * extent * .9, extent * .65, Math.cos(angle) * extent * .9); camera.position.lerp(cameraPosition, 1 - Math.exp(-frameDelta * 2)); camera.lookAt((map.bounds.minX + map.bounds.maxX) / 2, 1.2, (map.bounds.minZ + map.bounds.maxZ) / 2); }
       else if (state.phase === 'disaster') { const angle = .23 + state.finaleTime * .105, extent = Math.max(map.bounds.maxX - map.bounds.minX, map.bounds.maxZ - map.bounds.minZ); cameraPosition.set(Math.sin(angle) * extent * .79, extent * .56, Math.cos(angle) * extent * .79); camera.position.lerp(cameraPosition, 1 - Math.exp(-frameDelta * 1.4)); temp.set(map.gate.x, 2, (map.gate.z + map.spawn.z) * .2); camera.lookAt(temp); }
       else { temp.copy(hero.root.position).add(new THREE.Vector3(-Math.sin(yaw) * 1.6, 1.3, -Math.cos(yaw) * 1.6)); followTarget.lerp(temp, 1 - Math.exp(-frameDelta * 7)); cameraPosition.set(followTarget.x + Math.sin(yaw) * Math.cos(pitch) * distance, followTarget.y + Math.sin(pitch) * distance, followTarget.z + Math.cos(yaw) * Math.cos(pitch) * distance); camera.position.lerp(cameraPosition, 1 - Math.exp(-frameDelta * 6)); camera.lookAt(followTarget); }
     }
@@ -812,7 +832,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   };
   world.sync(state); camera.position.set(26, 65, 88); camera.lookAt((map.bounds.minX + map.bounds.maxX) / 2, 1.2, (map.bounds.minZ + map.bounds.maxZ) / 2); frame = requestAnimationFrame(animate);
   queueMicrotask(() => { if (!destroyed) { emit(); callbacks.onReady(); } });
-  return { start, pause, resume, interact, attack, dodge, selectBuilding, cycleBuilding, buildAtPlot, selectWeapon, cycleWeapon, commandCompanion,
+  return { start, endRun, returnToMenu, pause, resume, interact, attack, dodge, selectBuilding, cycleBuilding, buildAtPlot, selectWeapon, cycleWeapon, commandCompanion,
     // Advisors speak in a paused dialog; the reveal clock begins when play resumes.
     markSupplies: () => { if (destroyed || state.phase !== 'playing') return; markedUntil = elapsed + 10; showEvent('oracle', 'Resource deposits are marked for ten seconds.'); },
     setInput: (action, pressed) => { if (active() || !pressed) movement[action] = pressed; },

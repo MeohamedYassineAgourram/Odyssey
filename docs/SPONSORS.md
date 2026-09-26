@@ -5,7 +5,7 @@ Google and Gradium have generated bundled assets through real provider calls. A 
 | Sponsor | Current use | Evidence / limits |
 | --- | --- | --- |
 | Google DeepMind / Gemini | Contextual Troy dialogue and validated companion orders; new Troy cover; retained portraits, sky, marble, and Lyria music | Generated files and manifests are bundled. On September 26, 2026, a real `/api/troy/converse` request returned `source: gemini`, correctly recognized first-house materials, and requested `mark_supplies`. A later live campaign request correctly described Stage 2, The Amber Oasis, its 30 plots/four landmarks, and XP sources. Mocked contract and fallback tests also pass. |
-| Gradium | New Troy introduction; live speech through `/api/voice` | Bundled Troy narration is a 12.24-second WAV generated with `default`. Live replies depend on availability. |
+| Gradium | Lyra’s opening mission briefing; live speech through `/api/voice` | The active bundled briefing is a 9.5-second WAV generated with `default` and adjusted locally to 1.22× tempo while preserving pitch. Live replies depend on availability. |
 | Cognition / Devin | Retained guarded `/api/workshop` adapter | Not connected to Troy; retained code does not establish active integration. |
 | Voodoo | Event host acknowledgement | No runtime service integration claimed. |
 | YG | Event partner acknowledgement | Identity, technical offering, and access remain unconfirmed. No integration claimed. |
@@ -24,7 +24,9 @@ Lyra is the founder, Theron the architect and melee helper, and Mira the healer 
 
 The conversation default is `gemini-3.8-flash`, overridable with `GEMINI_MODEL`. Images use `gemini-3.1-flash-image`; retained music uses `lyria-3-clip-preview`. See the [Troy manifest](../public/troy/manifest.json) and [reused asset manifest](../public/oracle/manifest.json).
 
-**Gradium:** `POST /api/voice` requests WAV speech with `only_audio: true`, validates it, and returns audio. Missing/unavailable service produces an explicit unavailable response; the UI can use labeled browser speech. The saved Troy introduction uses Gradium; music comes from Lyria. Muting stops voice playback. New cannon, projectile, weapon, loot, and companion animations are procedural Three.js gameplay visuals, not additional provider-generated assets.
+**Gradium:** `POST /api/voice` requests WAV speech with `only_audio: true`, validates it, and returns audio. Missing/unavailable service produces an explicit unavailable response; the UI can use labeled browser speech. Each run plays the saved 9.5-second `briefing.wav` once, without a new provider call. The matching paragraph appears for the first 10 active game seconds, including when muted. Briefing playback pauses and resumes with the game; an NPC voice call cancels it. The older 12.24-second `intro.wav` remains an asset but is no longer played. The [briefing manifest](../public/troy/briefing-manifest.json) records the exact text, generation details, WAV format, and local tempo adjustment. Music comes from Lyria. Muting stops voice playback. New cannon, projectile, weapon, loot, and companion animations are procedural Three.js gameplay visuals, not additional provider-generated assets.
+
+The opening screen presents Xbox and Keyboard control tabs. Menu or Escape opens a pause screen with the same controls inline. Exit to main menu ends an active attempt and saves earned XP and collected weapons; exiting an already-won horse finale finalizes the victory and its rewards first. These gameplay and onboarding behaviors do not imply completed browser playtesting or physical controller testing.
 
 Keys remain server-side. Optional voice settings are `GRADIUM_VOICE_ID` and `GRADIUM_MODEL`. `/api/status` exposes configuration booleans only. Local development uses ignored `.env`; hosted keys belong in Sites runtime secrets.
 

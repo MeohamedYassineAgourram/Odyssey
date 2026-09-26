@@ -17,6 +17,10 @@ Open the printed URL. The development server provides a local Cloudflare D1 data
 
 ## Build your Troy
 
+The start screen offers **Xbox** and **Keyboard** control tabs alongside Play Troy. Press **Menu or Escape** during a run to pause and see the same controls inline, with options to continue or exit to the main menu.
+
+Lyra introduces each run with a bundled **9.5-second Gradium briefing**. Its paragraph appears during the first **10 active seconds** of play, including when sound is muted. The briefing pauses and resumes with the game; calling an NPC cancels its voice so the conversation can take over. Playback uses the saved `briefing.wav` asset and makes no new provider request per run.
+
 Each run starts with **120 seconds, 100 health, 3 timber, 2 stone, and 0 bronze**. Approach one of 30 empty plots across five districts and press **A or E** to open its building dashboard. The clock pauses while you review four building cards, your materials, costs, and effects. Select an affordable card and confirm with A or a click; B or Escape returns to the city. Timber and stone deposits provide 3 units; bronze provides 2. Deposits replenish after 7 seconds.
 
 The play view keeps the city visible with a compact timer, health and stamina, minimap, weapon belt, and contextual actions. Construction choices appear at the selected plot. Contracts, supplies, ranks, controls, sound, and credits are available through the pause menus.
@@ -40,6 +44,8 @@ Press **Y or T** to pause and call a companion. The microphone starts automatica
 
 After you defeat the Warlord and reach the deadline alive, the Trojan horse destroys Troy in one of four nine-second finales. Completing that finale banks your renown plus a **200-point survival bonus**. The next city starts empty. Best score, banked total, completed runs, city stage, discovered endings, weapon unlocks, XP, and rank are stored in D1. Signed-in Sites visitors use their platform identity; anonymous/local visitors use an HttpOnly profile cookie. Clearing that anonymous cookie loses access to its profile. The next run excludes the previous selected disaster. Conversations, building choices, menus, and pausing stop the clock and combat simulation.
 
+**Exit to main menu** ends the current attempt and saves its earned XP and collected weapon unlocks. Exiting during an already-won horse finale finalizes the victory, banks its rewards, and advances the campaign before returning to the menu.
+
 ## Cities and ranks
 
 Each city spans 100 × 86 world units, roughly five times the old playable area. Five districts contain 30 building plots and 15 replenishing deposits. Four outer landmark caches each award materials, 75 renown, and 35 XP. The map marks plots, resources, undiscovered caches, and typed enemies.
@@ -51,6 +57,8 @@ XP is awarded after every completed attempt: 15 per building, 8 per enemy, 25 pe
 `GET /api/troy/progress` loads the campaign; `POST` saves one completed run. Server validation recomputes rewards, and atomic run receipts prevent duplicate XP or stage advances on retries. The result screen waits for a successful save and offers retry on connection failure. Two simultaneous clears cannot advance the same stage twice. The game is client-simulated; this is not an anti-cheat system or public leaderboard.
 
 ## Controls
+
+Choose Xbox or Keyboard on the start screen to view the controls. The pause screen repeats these tabs inline; open it with Menu on the controller or Escape on the keyboard.
 
 | Keyboard / mouse / touch | Action |
 | --- | --- |
@@ -116,4 +124,4 @@ Tests cover the city economy, changing contracts, XP/rank boundaries, SQLite sav
 
 `app/page.tsx` contains the UI; `app/troy/` contains the city, engine, configuration, and rules. Reusable character models and controller support remain under `app/oracle/`. The app uses React, TypeScript, Three.js, and vinext. Sites hosting configuration is in `.openai/hosting.json`.
 
-New cover art and narration under `public/troy/` were generated through real Google and Gradium calls on September 26, 2026. `node scripts/generate-troy-assets.mjs` generates only missing Troy cover/narration files and spends provider credits. Retained portraits, sky, marble, and Lyria music are reused. See [asset provenance](docs/ASSETS.md). Older ORACLE survival routes and ECHO SHIFT resources remain compatibility code; their gameplay is not part of TROY 120.
+New cover art and narration under `public/troy/` were generated through real Google and Gradium calls on September 26, 2026. The active opening is `briefing.wav`; its [provenance manifest](public/troy/briefing-manifest.json) records the exact copy and pitch-preserving tempo adjustment. The older `intro.wav` remains bundled but is no longer played. `node scripts/generate-troy-assets.mjs` generates only missing Troy cover and legacy intro files and spends provider credits; it does not regenerate the new briefing. Retained portraits, sky, marble, and Lyria music are reused. See [asset provenance](docs/ASSETS.md). Older ORACLE survival routes and ECHO SHIFT resources remain compatibility code; their gameplay is not part of TROY 120.
