@@ -5,13 +5,17 @@ import { createCityMap } from './maps';
 import type { BuildingKind, CityMap, RunState } from './types';
 
 export type Collider = { x: number; z: number; w: number; d: number };
-type Building = { id: string; kind: BuildingKind; mesh: THREE.Group; rubble: THREE.Group; sparks: THREE.InstancedMesh; x: number; z: number; age: number; order: number };
+type Cannon = { turret: THREE.Group; recoil: THREE.Group; muzzle: THREE.Object3D; flash: THREE.Group; smoke: THREE.InstancedMesh; shotAge: number };
+type Building = { cannon?: Cannon; id: string; kind: BuildingKind; mesh: THREE.Group; rubble: THREE.Group; sparks: THREE.InstancedMesh; x: number; z: number; age: number; order: number };
 type Supply = { object: THREE.Group; halo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; token: THREE.Group; available: boolean; x: number };
 export type TroyWorld = {
   root: THREE.Group; colliders: Collider[];
   sync(state: RunState): void;
   update(time: number, dt: number, state: RunState, marked: boolean): void;
   setNodeAvailable(id: string, available: boolean): void;
+  aimTower(plotId: string, targetX: number, targetZ: number): void;
+  fireTower(plotId: string): void;
+  getCannonMuzzle(plotId: string): THREE.Vector3 | null;
   reset(): void;
   dispose(): void;
   groundHeight(x: number, z: number): number;
@@ -309,7 +313,45 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
     }
     box(parent, mat === gold ? gold : tileLight, 0, y + rise + .16, 0, .15, .13, depth + .42);
   };
-  const createBuilding = (kind: BuildingKind): THREE.Group => {
+  const cannonBarrelGeometry = new THREE.CylinderGeometry(.22, .31, 1.85, 16, 1, true); sharedGeometries.add(cannonBarrelGeometry);
+  const cannonFlashMaterial = new THREE.MeshBasicMaterial({ color: '#ffc163', transparent: true, opacity: .85, depthWrite: false, blending: THREE.AdditiveBlending });
+  const cannonFlashCore = new THREE.MeshBasicMaterial({ color: '#fff6d0', depthWrite: false });
+  const cannonSmokeMaterial = new THREE.MeshBasicMaterial({ color: '#d2c2a3', transparent: true, opacity: .32, depthWrite: false });
+  const cannonMaterials = [cannonFlashMaterial, cannonFlashCore, cannonSmokeMaterial];
+  const createCannon = (): Cannon => {
+    const turret = new THREE.Group(); turret.name = 'Rotating bronze cannon'; turret.position.y = 5.05;
+    const carriage = new THREE.Group(); turret.add(carriage);
+    cyl(carriage, bronze, 0, .045, 0, .71, .09);
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; make(ballGeo, gold, carriage, Math.sin(a) * .58, .12, Math.cos(a) * .58, .032, .026, .032); }
+    for (const side of [-1, 1]) {
+      box(carriage, wood, side * .38, .38, -.18, .18, .29, 1.32);
+      beam(carriage, lightWood, new THREE.Vector3(side * .38, .3, -.66), new THREE.Vector3(side * .38, .74, -.15), .16);
+      for (const z of [-.52, .35]) {
+        const wheel = cyl(carriage, darkWood, side * .57, .32, z, .255, .095); wheel.rotation.z = Math.PI / 2;
+        const hub = cyl(carriage, bronze, side * .64, .32, z, .105, .07); hub.rotation.z = Math.PI / 2;
+        const rim = torus(carriage, bronze, side * .632, .32, z, .23); rim.rotation.y = Math.PI / 2;
+      }
+      box(carriage, bronze, side * .49, .43, -.18, .035, .13, 1.15);
+      const trunnion = cyl(carriage, bronze, side * .36, .76, -.1, .13, .16); trunnion.rotation.z = Math.PI / 2;
+    }
+    box(carriage, darkWood, 0, .31, -.54, .94, .14, .15); batch(carriage);
+    const recoil = new THREE.Group(); recoil.name = 'Cannon recoiling barrel'; recoil.position.y = .79; recoil.rotation.x = -.08; turret.add(recoil);
+    const barrel = make(cannonBarrelGeometry, material('#485957', .38, .65), recoil, 0, 0, .25); barrel.rotation.x = Math.PI / 2;
+    make(ballGeo, bronze, recoil, 0, 0, -.72, .3, .3, .25);
+    for (const z of [-.48, -.05, .7, 1.17]) torus(recoil, bronze, 0, 0, z, z < 0 ? .305 : z < 1 ? .26 : .255);
+    const bore = cyl(recoil, material('#172423', .8), 0, 0, 1.105, .191, .02); bore.rotation.x = Math.PI / 2;
+    const breech = cyl(recoil, bronze, 0, 0, -.98, .084, .18); breech.rotation.x = Math.PI / 2;
+    box(recoil, gold, 0, .285, -.34, .12, .045, .32);
+    for (const side of [-1, 1]) make(ballGeo, gold, recoil, side * .285, 0, -.31, .026, .045, .045);
+    batch(recoil);
+    const muzzle = new THREE.Object3D(); muzzle.name = 'Cannon muzzle'; muzzle.position.z = 1.29; recoil.add(muzzle);
+    const flash = new THREE.Group(); flash.name = 'Cannon muzzle flash'; flash.position.z = 1.29; flash.visible = false; recoil.add(flash);
+    const flare = make(coneGeo, cannonFlashMaterial, flash, 0, 0, .35, .3, .82, .3); flare.rotation.x = Math.PI / 2; flare.castShadow = false;
+    const core = make(coneGeo, cannonFlashCore, flash, 0, 0, .19, .15, .44, .15); core.rotation.x = Math.PI / 2; core.castShadow = false;
+    const smoke = new THREE.InstancedMesh(ballGeo, cannonSmokeMaterial, 6); smoke.name = 'Cannon smoke'; smoke.visible = false; smoke.frustumCulled = false; turret.add(smoke);
+    return { turret, recoil, muzzle, flash, smoke, shotAge: Infinity };
+  };
+  const createBuilding = (kind: BuildingKind): { mesh: THREE.Group; cannon?: Cannon } => {
     const g = new THREE.Group(); g.name = `Constructed ${kind}`;
     box(g, shadowStone, 0, .14, 0, 4.25, .28, 4.25); box(g, stone, 0, .3, 0, 4.04, .12, 4.04);
     if (kind === 'house') {
@@ -367,7 +409,7 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
         for (const along of [-1.25, 0, 1.25]) { box(g, ivory, along, 5.3, side * 1.36, .54, .47, .4); box(g, ivory, side * 1.36, 5.3, along, .4, .47, .54); }
       }
       box(g, turquoise, -.84, 3.3, 1.28, .49, 1.42, .035); torus(g, bronze, -.84, 3.65, 1.32, .15);
-      cyl(g, wood, .6, 5.65, -.55, .045, 1.6); box(g, turquoise, .91, 6.1, -.55, .58, .57, .05);
+      cyl(g, shadowStone, 0, 4.84, 0, .86, .22); cyl(g, bronze, 0, 4.98, 0, .76, .1);
       for (const x of [-1.52, 1.52]) { beam(g, bronze, new THREE.Vector3(x, 2.2, 1), new THREE.Vector3(x, 2.6, 1.37), .07); make(coneGeo, gold, g, x, 2.9, 1.37, .13, .44, .13); }
     } else {
       for (let i = 0; i < 3; i++) box(g, i % 2 ? stone : ivory, 0, .35 + i * .12, 0, 4.12 - i * .28, .13, 4.12 - i * .28);
@@ -380,7 +422,9 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
       torus(g, bronze, 0, 3.99, 1.99, .22); make(ballGeo, gold, g, 0, 4, 2.02, .11, .11, .035);
       for (const x of [-1.7, 1.7]) cyl(g, bronze, x, .95, 1.78, .12, .75);
     }
-    batch(g); return g;
+    batch(g);
+    const cannon = kind === 'tower' ? createCannon() : undefined; if (cannon) g.add(cannon.turret);
+    return { mesh: g, cannon };
   };
 
   // A fully articulated wooden gift. It has no downloaded model or hidden dependency.
@@ -481,7 +525,7 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
   rebuildColliders();
   let runSeed: number | undefined, previousPhase: RunState['phase'] | undefined;
   const disposeBuilding = (b: Building) => {
-    b.mesh.traverse(obj => { if (obj instanceof THREE.Mesh && !sharedGeometries.has(obj.geometry)) obj.geometry.dispose(); });
+    b.mesh.traverse(obj => { if (obj instanceof THREE.InstancedMesh) obj.dispose(); if (obj instanceof THREE.Mesh && !sharedGeometries.has(obj.geometry)) obj.geometry.dispose(); });
     b.mesh.removeFromParent(); b.rubble.removeFromParent(); b.sparks.removeFromParent(); b.sparks.dispose();
   };
   const reset = () => {
@@ -499,14 +543,14 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
     for (const placed of state.buildings) {
       if (buildings.has(placed.plotId)) continue;
       const p = PLOTS.find(plot => plot.id === placed.plotId); if (!p) continue;
-      const mesh = createBuilding(placed.kind); mesh.position.set(p.x, 0, p.z); mesh.scale.setScalar(.05); root.add(mesh); setPlotAvailable(p.id, false);
+      const { mesh, cannon } = createBuilding(placed.kind); mesh.position.set(p.x, 0, p.z); mesh.scale.setScalar(.05); root.add(mesh); setPlotAvailable(p.id, false);
       const rubble = new THREE.Group(); rubble.position.set(p.x, 0, p.z); root.add(rubble); rubble.visible = false;
       for (let i = 0; i < 20; i++) {
         const debris = make(i % 4 ? boxGeo : ballGeo, i % 5 === 0 ? tile : i % 4 === 0 ? wood : stone, rubble, 0, 0, 0, .25 + random() * .6, .18 + random() * .32, .2 + random() * .65);
         debris.userData = { angle: i * 2.399 + p.x, distance: .5 + random() * 2.5, height: .3 + random() * 2.8, sizeX: debris.scale.x, sizeY: debris.scale.y, sizeZ: debris.scale.z };
       }
       const sparks = new THREE.InstancedMesh(ballGeo, sparksMat, 18); sparks.position.set(p.x, 0, p.z); sparks.frustumCulled = false; root.add(sparks);
-      buildings.set(p.id, { id: p.id, kind: placed.kind, mesh, rubble, sparks, x: p.x, z: p.z, age: 0, order: districtOrder(p.z) });
+      buildings.set(p.id, { id: p.id, kind: placed.kind, mesh, cannon, rubble, sparks, x: p.x, z: p.z, age: 0, order: districtOrder(p.z) });
       changed = true;
     }
     if (changed) rebuildColliders();
@@ -557,6 +601,23 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
       b.age += Math.max(0, Math.min(dt, .1));
       const pop = clamp(b.age / .55); const popScale = pop >= 1 ? 1 : Math.max(.025, 1 + 2.70158 * Math.pow(pop - 1, 3) + 1.70158 * Math.pow(pop - 1, 2));
       b.mesh.scale.setScalar(popScale); b.mesh.position.set(b.x, 0, b.z); b.mesh.rotation.set(0, 0, 0); b.mesh.visible = true;
+      if (b.cannon) {
+        const cannon = b.cannon; cannon.shotAge += Math.max(0, Math.min(dt, .1));
+        const recoilProgress = clamp(cannon.shotAge / .36);
+        cannon.recoil.position.z = -.24 * Math.pow(1 - recoilProgress, 2);
+        cannon.flash.visible = !finale && cannon.shotAge < .085;
+        cannon.flash.scale.setScalar(.55 + .65 * (1 - clamp(cannon.shotAge / .085)));
+        cannon.smoke.visible = !finale && cannon.shotAge < .42;
+        if (cannon.smoke.visible) {
+          const age = cannon.shotAge, fade = 1 - clamp(age / .42);
+          for (let i = 0; i < cannon.smoke.count; i++) {
+            const a = i * 2.399, expansion = .07 + age * .7;
+            const radius = (.1 + i * .022 + age * .5) * Math.sqrt(fade);
+            setInstance(cannon.smoke, i, Math.sin(a) * expansion, .94 + age * 1.1 + Math.cos(a) * expansion, 1.32 + age * (1.2 + i * .25), radius, radius * 1.2, radius);
+          }
+          cannon.smoke.instanceMatrix.needsUpdate = true;
+        }
+      }
       b.sparks.visible = b.age < 1.15 && !finale;
       if (b.sparks.visible) {
         for (let i = 0; i < 18; i++) {
@@ -665,7 +726,21 @@ export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
 
   return {
     root, colliders, sync, update, reset,
-    dispose: () => { sharedGeometries.forEach(geometry => geometry.dispose()); materials.forEach(mat => mat.dispose()); },
+    aimTower: (plotId, targetX, targetZ) => {
+      const building = buildings.get(plotId), cannon = building?.cannon;
+      if (!building || !cannon || !Number.isFinite(targetX) || !Number.isFinite(targetZ)) return;
+      const dx = targetX - building.x, dz = targetZ - building.z, distance = Math.hypot(dx, dz); if (distance < .001) return;
+      cannon.turret.rotation.y = Math.atan2(dx, dz); cannon.recoil.rotation.x = -Math.min(.17, .045 + distance * .002);
+    },
+    fireTower: plotId => {
+      const building = buildings.get(plotId), cannon = building?.cannon; if (!building?.mesh.visible || !cannon) return;
+      cannon.shotAge = 0; cannon.recoil.position.z = -.24; cannon.flash.visible = true; cannon.flash.scale.setScalar(1.2);
+    },
+    getCannonMuzzle: plotId => {
+      const building = buildings.get(plotId), cannon = building?.cannon; if (!building?.mesh.visible || !cannon) return null;
+      building.mesh.updateWorldMatrix(true, true); return cannon.muzzle.getWorldPosition(new THREE.Vector3());
+    },
+    dispose: () => { sharedGeometries.forEach(geometry => geometry.dispose()); materials.forEach(mat => mat.dispose()); cannonMaterials.forEach(mat => mat.dispose()); },
     groundHeight: () => 0,
     setNodeAvailable: (id: string, available: boolean) => {
       const supply = supplies.get(id); if (!supply) return;

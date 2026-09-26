@@ -1,12 +1,13 @@
-import type { EndingKind, RunState } from './types';
+import { WEAPONS } from './config';
+import type { EndingKind, RunState, WeaponKind } from './types';
 
 export type ProgressProfile = {
   xp: number; best: number; total: number; runs: number; clears: number; stage: number;
-  endings: EndingKind[]; lastEnding?: EndingKind;
+  endings: EndingKind[]; lastEnding?: EndingKind; weapons: WeaponKind[];
 };
 export type XPBreakdown = { buildings: number; combat: number; contracts: number; exploration: number; survival: number; total: number };
 export type Rank = { name: string; division: string; label: string; floor: number; next: number | null; progress: number; color: string };
-export const EMPTY_PROFILE: ProgressProfile = { xp: 0, best: 0, total: 0, runs: 0, clears: 0, stage: 1, endings: [] };
+export const EMPTY_PROFILE: ProgressProfile = { xp: 0, best: 0, total: 0, runs: 0, clears: 0, stage: 1, endings: [], weapons: ['sword'] };
 const names = ['Recruit', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Immortal'];
 const colors = ['#a5b5b0', '#c99462', '#c3d5df', '#f3ca70', '#76d4cb', '#a9baff', '#f28db6'];
 const thresholds = [0, 300, 700, 1200, 1800, 2500, 3300, 4200, 5200, 6500, 8000, 9800, 12000, 14500, 17500, 21000, 25000, 30000, 36000];
@@ -43,6 +44,7 @@ export function applyRunResult(profile: ProgressProfile, state: RunState): Progr
     total: profile.total + (survived ? state.score : 0), runs: profile.runs + 1,
     clears: profile.clears + Number(survived), stage: Math.min(10_000, profile.stage + Number(survived)),
     endings: survived ? [...new Set([...profile.endings, state.ending])] : [...profile.endings],
+    weapons: WEAPONS.filter(item => item.id === 'sword' || profile.weapons.includes(item.id) || state.weapons.includes(item.id)).map(item => item.id),
     lastEnding: state.ending,
   };
 }

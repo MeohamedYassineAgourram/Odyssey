@@ -1,10 +1,10 @@
 import { getD1 } from '../../../../db';
 import { initializeProgress, readProgress, saveRun } from '../../../../db/troy-progress';
 import { errorResponse, guardRequest, json, readJson, RequestError } from '../../../lib/api-guard';
-import { BLUEPRINTS, ENDINGS, FINALE_DURATION, RUN_DURATION } from '../../../troy/config';
+import { BLUEPRINTS, ENDINGS, FINALE_DURATION, RUN_DURATION, WEAPONS } from '../../../troy/config';
 import { createCityMap } from '../../../troy/maps';
 import { getMissions, getRunMissions } from '../../../troy/rules';
-import type { BuildingKind, EndingKind, Materials, RunState } from '../../../troy/types';
+import type { BuildingKind, EndingKind, Materials, RunState, WeaponKind } from '../../../troy/types';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -42,11 +42,15 @@ export function validatedRun(value: unknown): RunState {
   const explored = strings(value.explored, 'explored', map.landmarks.length);
   if (explored.some(id => !map.landmarks.some(landmark => landmark.id === id))) throw new RequestError('Unknown landmark.');
   const missions = getRunMissions({ seed, stage });
+  const weapons = strings(value.weapons ?? ['sword'], 'weapons', 3) as WeaponKind[];
+  if (!weapons.includes('sword') || weapons.some(kind => !WEAPONS.some(item => item.id === kind))) throw new RequestError('Unknown weapon inventory.');
+  const weapon = value.weapon ?? 'sword';
+  if (typeof weapon !== 'string' || !weapons.includes(weapon as WeaponKind)) throw new RequestError('The equipped weapon must be owned.');
   const completedMissions = strings(value.completedMissions, 'completedMissions', missions.length);
   if (completedMissions.some(id => !missions.some(mission => mission.id === id))) throw new RequestError('Unknown contract.');
   const state: RunState = {
     seed, stage, phase: 'ended', outcome: value.outcome as 'legend' | 'fallen', ending: value.ending as EndingKind,
-    health, timeLeft, finaleTime, materials, buildings, explored, completedMissions,
+    health, timeLeft, finaleTime, materials, buildings, explored, completedMissions, weapons, weapon: weapon as WeaponKind,
     gathered: number(value.gathered, 'gathered', 500), kills: number(value.kills, 'kills', 500),
     productionTime: number(value.productionTime, 'productionTime', 8, false),
     constructionScore: buildings.reduce((sum, building) => sum + BLUEPRINTS.find(plan => plan.id === building.kind)!.points, 0),

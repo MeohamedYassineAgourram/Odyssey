@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,7 +24,7 @@ try {
   api = require(join(compiled, 'app/api/troy/progress/route.js'));
 } finally { Module._load = originalLoad; }
 const { EMPTY_PROFILE, RANKS, getRank, getRankLadder, calculateXP, applyRunResult } = require(join(compiled, 'app/troy/progression.js'));
-const { createRun, advanceRun, buildAt, recordKill, gather, discoverLandmark, takeDamage } = require(join(compiled, 'app/troy/rules.js'));
+const { createRun, advanceRun, buildAt, recordKill, gather, discoverLandmark, takeDamage, collectWeapon } = require(join(compiled, 'app/troy/rules.js'));
 const { initializeProgress, readProgress, saveRun } = require(join(compiled, 'db/troy-progress.js'));
 
 // The adapter executes the production prepared SQL against real SQLite. Its batch
@@ -114,7 +114,7 @@ test('generated migration and runtime initialization produce matching SQLite tab
   const runtimeDb = new SQLiteD1(), migrated = new DatabaseSync(':memory:');
   try {
     await initializeProgress(runtimeDb);
-    migrated.exec(readFileSync('drizzle/0000_violet_cable.sql', 'utf8').replaceAll('--> statement-breakpoint', ''));
+    for (const file of readdirSync('drizzle').filter(file => file.endsWith('.sql')).sort()) migrated.exec(readFileSync(`drizzle/${file}`, 'utf8').replaceAll('--> statement-breakpoint', ''));
     for (const table of ['troy_profiles', 'troy_run_receipts']) {
       assert.deepEqual(runtimeDb.sql.prepare(`PRAGMA table_info(${table})`).all().map(row => ({ ...row })), migrated.prepare(`PRAGMA table_info(${table})`).all().map(row => ({ ...row })));
     }
@@ -215,6 +215,11 @@ test('progress validation rejects fabricated scores, inconsistent completion, un
       { ...body, state: { ...state, buildings: [...state.buildings, state.buildings[0]] } },
       { ...body, state: { ...state, buildings: [{ plotId: 'p31', kind: 'house', builtAt: 0 }] } },
       { ...body, state: { ...state, materials: { ...state.materials, wood: Infinity } } },
+      { ...body, state: { ...state, weapons: ['sword', 'bow', 'hammer', 'wand'] } },
+      { ...body, state: { ...state, weapons: ['sword', 'bow', 'bow'] } },
+      { ...body, state: { ...state, weapons: ['sword', 'wand'] } },
+      { ...body, state: { ...state, weapons: [] } },
+      { ...body, state: { ...state, weapon: 'hammer' } },
     ]) assert.equal((await api.POST(request(invalid))).status, 400);
     assert.equal((await api.POST(request(body, { origin: 'https://elsewhere.example' }))).status, 403);
     assert.equal((await api.GET(request(undefined, { 'sec-fetch-site': 'cross-site' }, 'GET'))).status, 403);
@@ -233,4 +238,29 @@ test('missing database returns explicit 503 and never pretends to persist progre
   assert.equal(post.status, 503);
   assert.equal(get.headers.get('set-cookie'), null);
   assert.match((await post.json()).error, /could not be saved/);
+});
+
+test('existing profiles upgrade safely and collected weapons persist through defeat and retries', async () => {
+  const db = new SQLiteD1();
+  try {
+    db.sql.exec(readFileSync('drizzle/0000_violet_cable.sql', 'utf8').replaceAll('--> statement-breakpoint', ''));
+    db.sql.prepare('INSERT INTO troy_profiles (user_id, xp) VALUES (?, ?)').run('returning-player', 75);
+    await Promise.all([initializeProgress(db), initializeProgress(db), initializeProgress(db)]);
+    assert.deepEqual((await readProgress(db, 'returning-player')).weapons, ['sword']);
+    assert.equal((await readProgress(db, 'returning-player')).xp, 75);
+    let run = collectWeapon(collectWeapon(createRun(3), 'bow'), 'hammer');
+    run = takeDamage(run, 100);
+    const runId = randomUUID(), saved = await saveRun(db, 'returning-player', runId, run);
+    assert.deepEqual(saved.profile.weapons, ['sword', 'bow', 'hammer']);
+    assert.equal(saved.profile.stage, 1);
+    const replay = await saveRun(db, 'returning-player', runId, { ...run, weapons: ['sword'] });
+    assert.deepEqual(replay.profile.weapons, ['sword', 'bow', 'hammer']);
+    assert.equal(replay.profile.runs, 1);
+    const oldClient = { ...completed(), weapons: undefined, weapon: undefined };
+    assert.deepEqual(api.validatedRun(oldClient).weapons, ['sword']);
+    const clear = await saveRun(db, 'returning-player', randomUUID(), api.validatedRun(oldClient));
+    assert.deepEqual(clear.profile.weapons, ['sword', 'bow', 'hammer'], 'old clients cannot erase already collected gear');
+    const pure = applyRunResult(EMPTY_PROFILE, run);
+    assert.deepEqual(pure.weapons, ['sword', 'bow', 'hammer']);
+  } finally { db.sql.close(); }
 });

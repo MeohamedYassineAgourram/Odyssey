@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import { createCharacter } from '../oracle/characters';
 import { BLUEPRINTS, FINALE_DURATION, RUN_DURATION } from './config';
-import { advanceRun, buildAt, buildingCostReason, canBuild, createRun, discoverLandmark, gather, getMissions, recordKill, takeDamage } from './rules';
+import { advanceRun, buildAt, buildingCostReason, canBuild, collectWeapon, createRun, discoverLandmark, equipWeapon, gather, getMissions, recordKill, takeDamage } from './rules';
 import { createCityMap } from './maps';
-import type { BuildingKind, CityMap, ControllerInput, EndingKind, Interaction, RunState, TroyCallbacks, TroyEngine } from './types';
+import { createWeaponLoot, createWeaponModel } from './arsenal';
+import type { BuildingKind, CityMap, CompanionOrder, CompanionStatus, ControllerInput, EndingKind, Interaction, RunState, TroyCallbacks, TroyEngine, WeaponKind } from './types';
 import { createTroyWorld } from './world';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const ATTACK_COOLDOWN = .38, DODGE_COOLDOWN = 1.8, HERO_RADIUS = .38;
+const DODGE_COOLDOWN = 1.8, HERO_RADIUS = .38;
+const WEAPON_STATS = { sword: { cooldown: .38, name: 'Bronze sword' }, bow: { cooldown: .64, name: 'Trojan bow' }, hammer: { cooldown: 1.05, name: 'War hammer' } };
 const RESOURCE_NAMES = { wood: 'timber', stone: 'stone', bronze: 'bronze' };
 type Collider = { x: number; z: number; w: number; d: number };
 type EnemyKind = 'skirmisher' | 'brute' | 'archer';
+const ENEMY_WEAPONS: Record<EnemyKind, WeaponKind> = { skirmisher: 'sword', archer: 'bow', brute: 'hammer' };
 const ENEMY_STATS = {
   skirmisher: { hp: 2, speed: 5.6, damage: 13, windup: .58, cooldown: 1.15, range: 2.1, color: '#ee725b' },
   brute: { hp: 4, speed: 3.75, damage: 24, windup: .95, cooldown: 1.85, range: 2.8, color: '#c586e8' },
@@ -49,6 +52,15 @@ function disposeObject(root: THREE.Object3D, preserveTexture?: THREE.Texture) {
     }
   });
   geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose()); textures.forEach(texture => { if (texture !== preserveTexture) texture.dispose(); });
+}
+
+function weaponHand(root: THREE.Group) {
+  const rig = root.children[0] as THREE.Group;
+  const torso = rig.children.find(child => child instanceof THREE.Group && Math.abs(child.position.y - 1.27) < .01) as THREE.Group;
+  const arm = torso?.children.find(child => child instanceof THREE.Group && child.position.x > .28 && child.position.y > .35) as THREE.Group | undefined;
+  const elbow = arm?.children.find(child => child instanceof THREE.Group) as THREE.Group | undefined;
+  const hand = elbow?.children.find(child => child instanceof THREE.Group) as THREE.Group | undefined;
+  return { arm, elbow, hand: hand ?? root };
 }
 
 function createRaider(kind: EnemyKind) {
@@ -101,8 +113,8 @@ function createRaider(kind: EnemyKind) {
   } };
 }
 
-export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbacks, previousEnding?: EndingKind, stage = 1): TroyEngine {
-  let state: RunState = { ...createRun(Date.now() >>> 0, previousEnding, stage), phase: 'ready' };
+export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbacks, previousEnding?: EndingKind, stage = 1, initialWeapons: WeaponKind[] = ['sword']): TroyEngine {
+  let state: RunState = { ...createRun(Date.now() >>> 0, previousEnding, stage, initialWeapons), phase: 'ready' };
   let map = createCityMap(state.stage, state.seed), difficulty = getRaidDifficulty(state.stage);
   const scene = new THREE.Scene(); scene.background = new THREE.Color('#c4d6cf'); scene.fog = new THREE.FogExp2('#cbd9ce', .0048);
   const camera = new THREE.PerspectiveCamera(47, 1, .15, 420);
@@ -118,19 +130,15 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const createAdvisors = () => map.advisors.map(config => {
     const actor = createCharacter(config.id); actor.root.position.set(config.x, world.groundHeight(config.x, config.z), config.z); actor.root.rotation.y = config.id === 'mira' ? .5 : -.5; scene.add(actor.root);
     const marker = new THREE.Mesh(new THREE.OctahedronGeometry(.18), new THREE.MeshBasicMaterial({ color: config.id === 'mira' ? '#bde9c5' : '#f4cb82' })); marker.position.set(config.x, 3.1, config.z); scene.add(marker);
-    return { config, actor, marker };
+    const rig = weaponHand(actor.root), hammer = createWeaponModel('hammer'), bow = createWeaponModel('bow');
+    rig.hand.add(hammer, bow); hammer.visible = bow.visible = false;
+    return { config, actor, marker, rig, hammer, bow, action: 'idle' as CompanionStatus['action'], description: 'Ready for your orders', building: 'house' as BuildingKind, targetPlot: null as string | null, work: 0, cooldown: 0, attackTime: 0, moving: false, route: [] as { x: number; z: number }[], routeTarget: '', routeTime: 0 };
   });
   let advisors = createAdvisors();
-  // Add a drawn blade to Lyra's existing right-hand joint; the original rig stays intact.
-  const heroRig = hero.root.children[0] as THREE.Group;
-  const torso = heroRig.children.find(child => child instanceof THREE.Group && Math.abs(child.position.y - 1.27) < .01) as THREE.Group;
-  const swordArm = torso?.children.find(child => child instanceof THREE.Group && child.position.x > .28 && child.position.y > .35) as THREE.Group | undefined;
-  const swordElbow = swordArm?.children.find(child => child instanceof THREE.Group) as THREE.Group | undefined;
-  const swordHand = swordElbow?.children.find(child => child instanceof THREE.Group) as THREE.Group | undefined;
-  const sword = new THREE.Group();
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(.07, .035, .9), new THREE.MeshStandardMaterial({ color: '#efd293', metalness: .8, roughness: .3 })); blade.position.z = .4; sword.add(blade);
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(.24, .065, .06), new THREE.MeshStandardMaterial({ color: '#987036', metalness: .65, roughness: .45 })); guard.position.z = -.04; sword.add(guard); sword.position.y = -.04;
-  (swordHand ?? hero.root).add(sword);
+  const heroRig = weaponHand(hero.root), swordArm = heroRig.arm, swordElbow = heroRig.elbow;
+  const heldWeapons = { sword: createWeaponModel('sword'), bow: createWeaponModel('bow'), hammer: createWeaponModel('hammer') };
+  for (const [kind, model] of Object.entries(heldWeapons)) { heroRig.hand.add(model); model.visible = kind === state.weapon; }
+  const syncHeldWeapon = () => { for (const [kind, model] of Object.entries(heldWeapons)) model.visible = kind === state.weapon; };
   const slashMaterial = new THREE.MeshBasicMaterial({ color: '#ffe4a4', transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide });
   const slash = new THREE.Mesh(new THREE.RingGeometry(1.3, 2.6, 40, 1, -.8, 2), slashMaterial); slash.rotation.x = -Math.PI / 2; slash.visible = false; scene.add(slash);
   const dodgeRing = new THREE.Mesh(new THREE.RingGeometry(.5, .68, 32), new THREE.MeshBasicMaterial({ color: '#b8eef2', transparent: true, opacity: .8, depthWrite: false, side: THREE.DoubleSide })); dodgeRing.rotation.x = -Math.PI / 2; dodgeRing.visible = false; scene.add(dodgeRing);
@@ -156,6 +164,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   let elapsed = 0, visualTime = 0, updateElapsed = 0, markedUntil = 0, lastFrame = performance.now(), frame = 0;
   let yaw = .2, pitch = .72, distance = 31, drag = false, dragPointer = -1, dragX = 0, dragY = 0;
   let stamina = 1, walking = 0, stepTime = 0, attackRemaining = 0, attackVisual = 0, dodgeRemaining = 0, invulnerable = 0, dashRemaining = 0, hitFlash = 0;
+  let attackCooldownMax = WEAPON_STATS.sword.cooldown, attackKind: WeaponKind = 'sword';
   let dashX = 0, dashZ = -1, facingX = 0, facingZ = -1, wave = 0, hint = '', hintUntil = 0, prankStage = 0, prankTime = 0, navTime = 0;
   let nextRaidAt = difficulty.firstRaid, raidWarned = false;
   let audioMuted = true, audio: AudioContext | null = null;
@@ -165,10 +174,13 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const nodeReady = new Map<string, number>(), towerReady = new Map<string, number>();
   const followTarget = hero.root.position.clone().add(new THREE.Vector3(0, 1.2, -1.6));
   const cameraPosition = new THREE.Vector3(), temp = new THREE.Vector3();
-  type Enemy = { actor: ReturnType<typeof createRaider>; kind: EnemyKind; hp: number; maxHp: number; cooldown: number; windup: number; hit: number; id: number; aimX: number; aimZ: number };
+  type Enemy = { actor: ReturnType<typeof createRaider>; kind: EnemyKind; hp: number; maxHp: number; cooldown: number; windup: number; hit: number; id: number; aimX: number; aimZ: number; vx: number; vz: number };
   const enemies: Enemy[] = []; let enemySerial = 0, randomValue = state.seed;
-  const arrows: { mesh: THREE.Mesh; start: THREE.Vector3; end: THREE.Vector3; age: number }[] = [];
+  const shots: { mesh: THREE.Mesh; kind: 'bow' | 'cannon'; start: THREE.Vector3; end: THREE.Vector3; vx: number; vz: number; age: number; duration: number; damage: number }[] = [];
   const enemyArrows: { mesh: THREE.Mesh; vx: number; vz: number; life: number; damage: number }[] = [];
+  const corpses: { actor: ReturnType<typeof createRaider>; age: number; y: number }[] = [];
+  const loot: { id: string; kind: WeaponKind; root: THREE.Group; x: number; z: number }[] = []; let lootSerial = 0;
+  const impacts: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; age: number; radius: number }[] = [];
   const prank = new THREE.Group(); scene.add(prank); prank.visible = false;
   const warningMaterial = new THREE.MeshBasicMaterial({ color: '#ffd25f', transparent: true, opacity: .7, side: THREE.DoubleSide, depthWrite: false });
   const warningCircle = new THREE.Mesh(new THREE.RingGeometry(2.4, 2.65, 48), warningMaterial); warningCircle.rotation.x = -Math.PI / 2; warningCircle.position.y = .08; prank.add(warningCircle);
@@ -202,7 +214,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const emit = () => {
     if (destroyed) return;
     // Cooldowns are normalized: zero is ready and one is the full cooldown.
-    callbacks.onUpdate({ ...state, materials: { ...state.materials }, buildings: state.buildings.map(building => ({ ...building })), completedMissions: [...state.completedMissions], explored: [...state.explored], paused, selected, nearest: nearest ? { ...nearest } : null, player: { x: hero.root.position.x, z: hero.root.position.z }, stamina: stamina * 100, enemies: enemies.length, attackCooldown: clamp(attackRemaining / ATTACK_COOLDOWN, 0, 1), dodgeCooldown: clamp(dodgeRemaining / DODGE_COOLDOWN, 0, 1), wave, hint, nextRaid: state.phase === 'playing' || state.phase === 'ready' ? Math.max(0, nextRaidAt - elapsed) : 0, enemyPositions: enemies.map(enemy => ({ x: enemy.actor.root.position.x, z: enemy.actor.root.position.z, kind: enemy.kind })) });
+    callbacks.onUpdate({ ...state, materials: { ...state.materials }, buildings: state.buildings.map(building => ({ ...building })), completedMissions: [...state.completedMissions], explored: [...state.explored], weapons: [...state.weapons], paused, selected, nearest: nearest ? { ...nearest } : null, player: { x: hero.root.position.x, z: hero.root.position.z }, stamina: stamina * 100, enemies: enemies.length, attackCooldown: clamp(attackRemaining / attackCooldownMax, 0, 1), dodgeCooldown: clamp(dodgeRemaining / DODGE_COOLDOWN, 0, 1), wave, hint, nextRaid: state.phase === 'playing' || state.phase === 'ready' ? Math.max(0, nextRaidAt - elapsed) : 0, enemyPositions: enemies.map(enemy => ({ x: enemy.actor.root.position.x, z: enemy.actor.root.position.z, kind: enemy.kind })), companions: advisors.map(advisor => ({ character: advisor.config.id, action: advisor.action, description: advisor.description })) });
   };
   const showEvent = (type: string, message: string) => { if (!destroyed) callbacks.onEvent({ type, message }); };
   const showHint = (message: string, seconds = 5) => { hint = message; hintUntil = elapsed + seconds; showEvent('warning', message); };
@@ -213,7 +225,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       showEvent('mission', `${mission.title} · +${mission.points} points · ${supplies}`);
     }
     if (state.phase !== previous.phase) {
-      clearInput(); nearest = null; clearArrows();
+      clearInput(); nearest = null; clearArrows(); clearEffects();
       if (state.phase === 'disaster') {
         lastEnding = state.ending; hint = 'A gift from the Greeks. What could possibly go wrong?'; hintUntil = Infinity; slash.visible = false; dodgeRing.visible = false; prank.visible = false;
         enemies.forEach(enemy => { enemy.actor.telegraph.visible = false; enemy.actor.aimLine.visible = false; });
@@ -245,6 +257,8 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const updateNearest = () => {
     nearest = null; if (state.phase !== 'playing') return;
     const p = hero.root.position;
+    const drop = loot.filter(item => Math.hypot(item.x - p.x, item.z - p.z) < 2.6).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+    if (drop) { nearest = { id: drop.id, kind: 'loot', title: `Pick up ${WEAPON_STATS[drop.kind].name}`, description: state.weapons.includes(drop.kind) ? 'Already carried · recover this drop without adding a duplicate' : 'Add this weapon to your pack and equip it', available: true }; return; }
     const resources = map.resources.filter(node => Math.hypot(node.x - p.x, node.z - p.z) < 2.6).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
     const node = resources.find(item => (nodeReady.get(item.id) ?? 0) <= elapsed);
     if (node) { nearest = { id: node.id, kind: 'resource', title: `Collect ${RESOURCE_NAMES[node.resource]}`, description: `+${node.amount} ${RESOURCE_NAMES[node.resource]} · replenishes in 7 seconds`, available: true }; return; }
@@ -252,19 +266,37 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     if (landmark) { nearest = { id: landmark.id, kind: 'landmark', title: `Explore ${landmark.name}`, description: 'Discover this district · treasure, expedition points and career XP', available: true }; return; }
     const plot = map.plots.filter(item => !state.buildings.some(building => building.plotId === item.id) && Math.hypot(item.x - p.x, item.z - p.z) < 4.2).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
     if (plot) {
-      const blueprint = BLUEPRINTS.find(item => item.id === selected)!;
-      const cost = Object.entries(blueprint.cost).filter(([, count]) => count > 0).map(([key, count]) => `${count} ${RESOURCE_NAMES[key as keyof typeof RESOURCE_NAMES]}`).join(' · ');
-      const reason = buildingCostReason(state, selected, plot.id);
-      nearest = { id: plot.id, kind: 'plot', title: `Build ${blueprint.name}`, description: reason ? `${cost} · ${reason}` : `${cost} · +${blueprint.points} points`, available: canBuild(state, selected, plot.id) }; return;
+      nearest = { id: plot.id, kind: 'plot', title: 'Plan this building plot', description: 'Open the building dashboard · choose a design and review its cost', available: true }; return;
     }
-    const advisor = advisors.filter(item => Math.hypot(item.config.x - p.x, item.config.z - p.z) < 2.8).sort((a, b) => Math.hypot(a.config.x - p.x, a.config.z - p.z) - Math.hypot(b.config.x - p.x, b.config.z - p.z))[0];
+    const advisor = advisors.filter(item => Math.hypot(item.actor.root.position.x - p.x, item.actor.root.position.z - p.z) < 2.8).sort((a, b) => a.actor.root.position.distanceToSquared(p) - b.actor.root.position.distanceToSquared(p))[0];
     if (advisor) { nearest = { id: advisor.config.id, kind: 'advisor', title: `Talk to ${advisor.config.id === 'mira' ? 'Mira' : 'Theron'}`, description: advisor.config.id === 'mira' ? 'The healer has a thought about that wooden horse.' : 'A builder’s advice for a very short golden age.', available: true, character: advisor.config.id }; return; }
     if (resources[0]) { const remaining = Math.ceil((nodeReady.get(resources[0].id) ?? 0) - elapsed); nearest = { id: resources[0].id, kind: 'resource', title: 'Supplies replenishing', description: `${RESOURCE_NAMES[resources[0].resource]} returns in ${remaining}s`, available: false }; }
+  };
+  const completeBuilding = (plotId: string, kind: BuildingKind, builder?: string) => {
+    const next = buildAt(state, plotId, kind); if (next.buildings.length === state.buildings.length) return false;
+    transition(next); world.sync(state); navTime = 0; navDirty = true;
+    for (const actor of [hero, ...advisors.map(advisor => advisor.actor), ...enemies.map(enemy => enemy.actor)]) {
+      const p = actor.root.position; if (!canMove(p.x, p.z, .4)) { const free = findFree(p.x, p.z, .4); p.set(free.x, world.groundHeight(free.x, free.z), free.z); }
+    }
+    const blueprint = BLUEPRINTS.find(item => item.id === kind)!; sound('build'); showEvent('build', `${builder ? `${builder} completed a ` : ''}${blueprint.name} · +${blueprint.points} points`); updateNearest(); emit(); return true;
+  };
+  const buildAtPlot = (plotId: string, kind: BuildingKind) => {
+    if (destroyed || state.phase !== 'playing') return false;
+    const plot = map.plots.find(item => item.id === plotId);
+    if (!plot || Math.hypot(plot.x - hero.root.position.x, plot.z - hero.root.position.z) > 4.3) { showEvent('notice', 'Walk closer to this building plot.'); return false; }
+    const reason = buildingCostReason(state, kind, plotId); if (reason) { showEvent('notice', reason); return false; }
+    selected = kind; return completeBuilding(plotId, kind);
   };
   const interact = () => {
     if (!active()) return; updateNearest(); if (!nearest) return;
     if (!nearest.available) { showEvent('notice', nearest.description); return; }
     if (nearest.kind === 'advisor' && nearest.character) { callbacks.onTalk(nearest.character); return; }
+    if (nearest.kind === 'plot') { callbacks.onBuildPlot?.(nearest.id); return; }
+    if (nearest.kind === 'loot') {
+      const index = loot.findIndex(item => item.id === nearest!.id); if (index < 0) return;
+      const drop = loot[index], owned = state.weapons.includes(drop.kind); transition(collectWeapon(state, drop.kind)); syncHeldWeapon(); scene.remove(drop.root); disposeObject(drop.root); loot.splice(index, 1); sound('pickup');
+      showEvent('loot', owned ? `${WEAPON_STATS[drop.kind].name} is already in your pack.` : `${WEAPON_STATS[drop.kind].name} acquired and equipped.`); updateNearest(); emit(); return;
+    }
     if (nearest.kind === 'resource') {
       const node = map.resources.find(item => item.id === nearest!.id); if (!node || (nodeReady.get(node.id) ?? 0) > elapsed) return;
       transition(gather(state, node.resource, node.amount)); nodeReady.set(node.id, elapsed + 7); world.setNodeAvailable(node.id, false); sound('pickup'); showEvent('pickup', `+${node.amount} ${RESOURCE_NAMES[node.resource]}`);
@@ -272,26 +304,59 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       const landmark = map.landmarks.find(item => item.id === nearest!.id); if (!landmark) return;
       const before = state.score, next = discoverLandmark(state, landmark.id); if (next === state) return;
       transition(next); world.sync(state); sound('pickup'); showEvent('explore', `${landmark.name} discovered · +${state.score - before} points · treasure recovered`);
-    } else {
-      const next = buildAt(state, nearest.id, selected); if (next.buildings.length === state.buildings.length) return;
-      transition(next); world.sync(state); navTime = 0; navDirty = true;
-      const p = hero.root.position; if (!canMove(p.x, p.z)) { const free = findFree(p.x, p.z); p.set(free.x, world.groundHeight(free.x, free.z), free.z); }
-      for (const enemy of enemies) { const p = enemy.actor.root.position; if (!canMove(p.x, p.z, .4)) { const free = findFree(p.x, p.z, .4); p.set(free.x, world.groundHeight(free.x, free.z), free.z); } }
-      const blueprint = BLUEPRINTS.find(item => item.id === selected)!; sound('build'); showEvent('build', `${blueprint.name} completed · +${blueprint.points} points`);
     }
     updateNearest(); emit();
+  };
+  const impact = (x: number, z: number, radius: number, color = '#ffd891', fiery = false) => {
+    if (impacts.length >= 30) { const oldest = impacts.shift()!; scene.remove(oldest.mesh); disposeObject(oldest.mesh); }
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(.65, 1, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .9, side: THREE.DoubleSide, depthWrite: false }));
+    mesh.name = 'combat-impact'; mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, world.groundHeight(x, z) + .13, z); mesh.scale.setScalar(.15);
+    if (fiery) { const burst = new THREE.Mesh(new THREE.IcosahedronGeometry(.32, 1), new THREE.MeshBasicMaterial({ color: '#ffd18c', transparent: true, opacity: .9, depthWrite: false })); burst.name = 'cannon-explosion'; burst.position.z = .24; mesh.add(burst); }
+    scene.add(mesh); impacts.push({ mesh, age: 0, radius });
+  };
+  const launchBow = (from: THREE.Vector3, target: THREE.Vector3, damage: number) => {
+    if (shots.length >= 64) return;
+    const dx = target.x - from.x, dz = target.z - from.z, length = Math.hypot(dx, dz) || 1;
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(.035, .065, 1.2, 5), new THREE.MeshBasicMaterial({ color: '#bbedee' }));
+    mesh.name = 'friendly-arrow'; mesh.position.set(from.x, from.y + 1.25, from.z); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / length, 0, dz / length)); scene.add(mesh);
+    shots.push({ mesh, kind: 'bow', start: mesh.position.clone(), end: target.clone(), vx: dx / length * 25, vz: dz / length * 25, age: 0, duration: .95, damage });
+  };
+  const dropWeapon = (kind: WeaponKind, x: number, z: number) => {
+    if (loot.length >= 16) { const oldest = loot.shift()!; scene.remove(oldest.root); disposeObject(oldest.root); }
+    const free = findFree(x, z, .12), root = createWeaponLoot(kind), id = `weapon-drop-${lootSerial++}`;
+    root.name = id; root.userData.weaponKind = kind; root.position.set(free.x, world.groundHeight(free.x, free.z) + .1, free.z); scene.add(root); loot.push({ id, kind, root, x: free.x, z: free.z });
   };
   const damageEnemy = (enemy: Enemy, amount: number) => {
     if (enemy.hp <= 0 || state.phase !== 'playing') return; enemy.hp -= amount; enemy.hit = .25;
     if (enemy.kind !== 'brute') { enemy.windup = 0; enemy.cooldown = Math.max(enemy.cooldown, .5); enemy.actor.aimLine.visible = false; }
-    if (enemy.hp <= 0) { const index = enemies.indexOf(enemy); if (index >= 0) enemies.splice(index, 1); scene.remove(enemy.actor.root, enemy.actor.aimLine); disposeObject(enemy.actor.root); disposeObject(enemy.actor.aimLine); transition(recordKill(state)); showEvent('combat', `${enemy.kind === 'brute' ? 'Armored brute' : enemy.kind === 'archer' ? 'Archer' : 'Skirmisher'} defeated · +35 points`); }
+    if (enemy.hp <= 0) {
+      const index = enemies.indexOf(enemy); if (index >= 0) enemies.splice(index, 1);
+      scene.remove(enemy.actor.aimLine); disposeObject(enemy.actor.aimLine); enemy.actor.telegraph.visible = enemy.actor.healthBack.visible = enemy.actor.healthFill.visible = false;
+      delete enemy.actor.root.userData.enemyKind; enemy.actor.root.name = `fallen-${enemy.kind}`;
+      if (corpses.length >= 18) { const oldest = corpses.shift()!; scene.remove(oldest.actor.root); disposeObject(oldest.actor.root); }
+      corpses.push({ actor: enemy.actor, age: 0, y: enemy.actor.root.position.y });
+      dropWeapon(ENEMY_WEAPONS[enemy.kind], enemy.actor.root.position.x, enemy.actor.root.position.z);
+      transition(recordKill(state)); showEvent('combat', `${enemy.kind === 'brute' ? 'Armored brute' : enemy.kind === 'archer' ? 'Archer' : 'Skirmisher'} defeated · +35 points`);
+    }
   };
   const attack = () => {
-    if (!active() || attackRemaining > 0) return; attackRemaining = ATTACK_COOLDOWN; attackVisual = .28; sound('sword');
-    const p = hero.root.position, targets = enemies.filter(enemy => enemy.actor.root.position.distanceTo(p) < 3.8 && lineClear(p.x, p.z, enemy.actor.root.position.x, enemy.actor.root.position.z, .1)).sort((a, b) => a.actor.root.position.distanceToSquared(p) - b.actor.root.position.distanceToSquared(p)).slice(0, 3);
+    if (!active() || attackRemaining > 0) return;
+    attackKind = state.weapon; attackCooldownMax = WEAPON_STATS[state.weapon].cooldown; attackRemaining = attackCooldownMax; attackVisual = state.weapon === 'hammer' ? .48 : .28; sound('sword');
+    const p = hero.root.position, range = state.weapon === 'bow' ? 21 : state.weapon === 'hammer' ? 4.2 : 3.8;
+    const targets = enemies.filter(enemy => enemy.actor.root.position.distanceTo(p) < range && lineClear(p.x, p.z, enemy.actor.root.position.x, enemy.actor.root.position.z, .1)).sort((a, b) => a.actor.root.position.distanceToSquared(p) - b.actor.root.position.distanceToSquared(p)).slice(0, state.weapon === 'bow' ? 1 : state.weapon === 'hammer' ? 8 : 3);
     if (targets[0]) { const dx = targets[0].actor.root.position.x - p.x, dz = targets[0].actor.root.position.z - p.z; hero.root.rotation.y = Math.atan2(dx, dz); facingX = Math.sin(hero.root.rotation.y); facingZ = Math.cos(hero.root.rotation.y); }
-    targets.forEach(enemy => damageEnemy(enemy, state.stage >= 5 ? 2 : 1)); emit();
+    if (state.weapon === 'bow') launchBow(p, targets[0]?.actor.root.position ?? p.clone().add(new THREE.Vector3(facingX * 21, 0, facingZ * 21)), state.stage >= 5 ? 3 : 2);
+    else {
+      for (const enemy of targets) {
+        damageEnemy(enemy, state.weapon === 'hammer' ? state.stage >= 5 ? 4 : 3 : state.stage >= 5 ? 2 : 1);
+        if (state.weapon === 'hammer' && enemy.hp > 0) { const position = enemy.actor.root.position, dx = position.x - p.x, dz = position.z - p.z, length = Math.hypot(dx, dz) || 1; move(position, dx / length * 2.2, dz / length * 2.2, .4); enemy.windup = 0; enemy.cooldown = Math.max(enemy.cooldown, .6); }
+      }
+      if (state.weapon === 'hammer') impact(p.x, p.z, 4.4, '#e4c0ff');
+    }
+    emit();
   };
+  const selectWeapon = (kind: WeaponKind) => { if (destroyed || state.phase !== 'playing') return; const next = equipWeapon(state, kind); if (next === state) return; state = next; syncHeldWeapon(); emit(); };
+  const cycleWeapon = (direction: number) => { if (!active()) return; const index = state.weapons.indexOf(state.weapon); selectWeapon(state.weapons[(index + (direction < 0 ? -1 : 1) + state.weapons.length) % state.weapons.length]); };
   const dodge = () => {
     if (!active() || dodgeRemaining > 0) return;
     let horizontal = Number(movement.right) - Number(movement.left) + controller.x, vertical = Number(movement.forward) - Number(movement.backward) + controller.y;
@@ -300,19 +365,37 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   };
   const selectBuilding = (kind: BuildingKind) => { if (!active() || !BLUEPRINTS.some(item => item.id === kind)) return; selected = kind; updateNearest(); emit(); };
   const cycleBuilding = (direction: number) => { if (!active()) return; const index = BLUEPRINTS.findIndex(item => item.id === selected); selectBuilding(BLUEPRINTS[(index + (direction < 0 ? -1 : 1) + BLUEPRINTS.length) % BLUEPRINTS.length].id); };
+  const commandCompanion = (order: CompanionOrder) => {
+    if (destroyed || state.phase !== 'playing') return { accepted: false, message: 'Start an expedition before giving field orders.' };
+    const advisor = advisors.find(item => item.config.id === order.character);
+    if (!advisor || !['fight', 'build', 'follow'].includes(order.action)) return { accepted: false, message: 'Choose Theron or Mira and a fight, build, or follow order.' };
+    const kind = order.building ?? 'house';
+    if (order.action === 'build' && !BLUEPRINTS.some(item => item.id === kind)) return { accepted: false, message: 'Choose an available building design.' };
+    if (advisor.action !== order.action || (order.action === 'build' && advisor.building !== kind)) { advisor.work = 0; advisor.targetPlot = null; advisor.route = []; advisor.routeTarget = ''; }
+    advisor.action = order.action; advisor.building = kind;
+    const name = order.character === 'theron' ? 'Theron' : 'Mira';
+    advisor.description = order.action === 'build' ? `Preparing to build ${BLUEPRINTS.find(item => item.id === kind)!.name}` : order.action === 'fight' ? 'Protecting Lyra and engaging nearby raiders' : 'Following Lyra';
+    const message = order.action === 'build' ? `${name} will build ${BLUEPRINTS.find(item => item.id === kind)!.name} using your shared materials. Each build takes six seconds.` : order.action === 'fight' ? `${name} will follow you and fight nearby raiders.` : `${name} will follow you.`;
+    emit(); return { accepted: true, message };
+  };
   const pause = () => { if (destroyed || (state.phase !== 'playing' && state.phase !== 'disaster')) return; paused = true; clearInput(); if (audio?.state === 'running') void audio.suspend(); emit(); };
   const resume = () => { if (destroyed || !paused || (state.phase !== 'playing' && state.phase !== 'disaster')) return; paused = false; lastFrame = performance.now(); if (!audioMuted && audio?.state === 'suspended') void audio.resume(); emit(); };
   const clearEnemies = () => { for (const enemy of enemies) { scene.remove(enemy.actor.root, enemy.actor.aimLine); disposeObject(enemy.actor.root); disposeObject(enemy.actor.aimLine); } enemies.length = 0; };
-  const clearArrows = () => { for (const arrow of [...arrows, ...enemyArrows]) { scene.remove(arrow.mesh); disposeObject(arrow.mesh); } arrows.length = 0; enemyArrows.length = 0; };
-  const start = (nextStage = state.stage) => {
+  const clearArrows = () => { for (const arrow of [...shots, ...enemyArrows]) { scene.remove(arrow.mesh); disposeObject(arrow.mesh); } shots.length = 0; enemyArrows.length = 0; };
+  const clearEffects = () => {
+    for (const corpse of corpses) { scene.remove(corpse.actor.root); disposeObject(corpse.actor.root); } corpses.length = 0;
+    for (const item of loot) { scene.remove(item.root); disposeObject(item.root); } loot.length = 0;
+    for (const effect of impacts) { scene.remove(effect.mesh); disposeObject(effect.mesh); } impacts.length = 0;
+  };
+  const start = (nextStage = state.stage, weapons = state.weapons) => {
     if (destroyed) return;
-    const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0; state = createRun(seed, lastEnding, nextStage); randomValue = state.seed;
-    paused = false; selected = 'house'; nearest = null; clearInput(); clearEnemies(); clearArrows(); nodeReady.clear(); towerReady.clear();
+    const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0; state = createRun(seed, lastEnding, nextStage, weapons); randomValue = state.seed; syncHeldWeapon();
+    paused = false; selected = 'house'; nearest = null; clearInput(); clearEnemies(); clearArrows(); clearEffects(); nodeReady.clear(); towerReady.clear();
     scene.remove(world.root); disposeObject(world.root, marbleTexture); world.dispose();
     for (const { actor, marker } of advisors) { scene.remove(actor.root, marker); disposeObject(actor.root); disposeObject(marker); }
     map = createCityMap(state.stage, state.seed); difficulty = getRaidDifficulty(state.stage); world = createTroyWorld(map); scene.add(world.root); if (marbleLoaded) applyMarble(marbleTexture); advisors = createAdvisors(); world.sync(state); resetNavigation();
     elapsed = 0; visualTime = 0; updateElapsed = 0; markedUntil = 0; stamina = 1; walking = 0; stepTime = 0; attackRemaining = 0; attackVisual = 0; dodgeRemaining = 0; invulnerable = 0; dashRemaining = 0; hitFlash = 0;
-    facingX = 0; facingZ = -1; dashX = 0; dashZ = -1; wave = 0; hint = ''; hintUntil = 0; prankStage = 0; prankTime = 0; navTime = 0; enemySerial = 0; nextRaidAt = difficulty.firstRaid; raidWarned = false;
+    facingX = 0; facingZ = -1; dashX = 0; dashZ = -1; wave = 0; hint = ''; hintUntil = 0; prankStage = 0; prankTime = 0; navTime = 0; enemySerial = 0; lootSerial = 0; attackCooldownMax = WEAPON_STATS.sword.cooldown; attackKind = 'sword'; nextRaidAt = difficulty.firstRaid; raidWarned = false;
     hero.root.position.set(map.spawn.x, world.groundHeight(map.spawn.x, map.spawn.z), map.spawn.z); hero.root.rotation.set(0, Math.PI, 0); hero.root.visible = true;
     yaw = .13; pitch = .72; distance = 31; followTarget.copy(hero.root.position).add(new THREE.Vector3(0, 1.2, -1.6));
     slash.visible = false; dodgeRing.visible = false; prank.visible = false; crack.visible = false; gift.visible = true; giftBand.visible = true; warningCircle.visible = true;
@@ -351,7 +434,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     if (enemies.length >= difficulty.aliveCap) return;
     const p = findFree(x, z, .43), actor = createRaider(kind), maxHp = ENEMY_STATS[kind].hp + difficulty.hpBonus;
     actor.root.position.set(p.x, world.groundHeight(p.x, p.z), p.z); scene.add(actor.root, actor.aimLine);
-    enemies.push({ actor, kind, hp: maxHp, maxHp, cooldown: .7 + random() * .7, windup: 0, hit: 0, id: enemySerial++, aimX: p.x, aimZ: p.z });
+    enemies.push({ actor, kind, hp: maxHp, maxHp, cooldown: .7 + random() * .7, windup: 0, hit: 0, id: enemySerial++, aimX: p.x, aimZ: p.z, vx: 0, vz: 0 });
   };
   const spawnWave = () => {
     const p = hero.root.position, b = map.bounds;
@@ -394,7 +477,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     for (const enemy of [...enemies]) {
       if (state.phase !== 'playing') break;
       const stats = ENEMY_STATS[enemy.kind], position = enemy.actor.root.position, dx = p.x - position.x, dz = p.z - position.z, range = Math.hypot(dx, dz);
-      enemy.hit = Math.max(0, enemy.hit - dt); enemy.cooldown = Math.max(0, enemy.cooldown - dt); let moving = false;
+      const beforeX = position.x, beforeZ = position.z; enemy.hit = Math.max(0, enemy.hit - dt); enemy.cooldown = Math.max(0, enemy.cooldown - dt); let moving = false;
       const archer = enemy.kind === 'archer', clear = range < 18 && lineClear(position.x, position.z, p.x, p.z, .15);
       if (enemy.windup > 0) {
         enemy.windup = Math.max(0, enemy.windup - dt);
@@ -425,6 +508,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
           const speed = Math.min(stats.speed * difficulty.speedScale * dt, distance), length = Math.hypot(vx, vz) || 1; move(position, vx / length * speed, vz / length * speed, .4); moving = true;
         }
       }
+      enemy.vx = (position.x - beforeX) / dt; enemy.vz = (position.z - beforeZ) / dt;
       const desired = archer && enemy.windup > 0 ? Math.atan2(enemy.aimX - position.x, enemy.aimZ - position.z) : Math.atan2(dx, dz); enemy.actor.root.rotation.y += Math.atan2(Math.sin(desired - enemy.actor.root.rotation.y), Math.cos(desired - enemy.actor.root.rotation.y)) * Math.min(1, dt * 9);
       enemy.actor.animate(visualTime + enemy.id, moving, enemy.windup, enemy.hit, enemy.hp / enemy.maxHp);
       const billboard = enemy.actor.root.quaternion.clone().invert().multiply(camera.quaternion); enemy.actor.healthBack.quaternion.copy(billboard); enemy.actor.healthFill.quaternion.copy(billboard);
@@ -434,14 +518,39 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
       }
     }
     if (state.phase !== 'playing') return;
-    for (const building of state.buildings) if (building.kind === 'tower' && (towerReady.get(building.plotId) ?? 0) <= elapsed) {
+    for (const building of state.buildings) if (building.kind === 'tower') {
+      if (elapsed - building.builtAt < .65) continue;
       const plot = map.plots.find(item => item.id === building.plotId); if (!plot) continue;
-      const enemy = enemies.filter(item => Math.hypot(item.actor.root.position.x - plot.x, item.actor.root.position.z - plot.z) < 19).sort((a, b) => Math.hypot(a.actor.root.position.x - plot.x, a.actor.root.position.z - plot.z) - Math.hypot(b.actor.root.position.x - plot.x, b.actor.root.position.z - plot.z))[0];
-      if (!enemy) continue; towerReady.set(plot.id, elapsed + 1.35);
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(.035, .045, 1.05, 5), new THREE.MeshBasicMaterial({ color: '#ffe7a3' }));
-      const start = new THREE.Vector3(plot.x, 5.1, plot.z), end = enemy.actor.root.position.clone().add(new THREE.Vector3(0, 1.3, 0)); mesh.position.copy(start); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().sub(start).normalize()); scene.add(mesh); arrows.push({ mesh, start, end, age: 0 }); damageEnemy(enemy, state.stage >= 5 ? 2 : 1);
+      const enemy = enemies.filter(item => Math.hypot(item.actor.root.position.x - plot.x, item.actor.root.position.z - plot.z) < 24).sort((a, b) => Math.hypot(a.actor.root.position.x - plot.x, a.actor.root.position.z - plot.z) - Math.hypot(b.actor.root.position.x - plot.x, b.actor.root.position.z - plot.z))[0];
+      if (!enemy) continue;
+      world.aimTower(plot.id, enemy.actor.root.position.x, enemy.actor.root.position.z);
+      if ((towerReady.get(plot.id) ?? 0) > elapsed || shots.length >= 64) continue;
+      const start = world.getCannonMuzzle(plot.id); if (!start) continue;
+      const duration = clamp(Math.hypot(enemy.actor.root.position.x - start.x, enemy.actor.root.position.z - start.z) / 19, .38, 1.15);
+      const end = new THREE.Vector3(enemy.actor.root.position.x + enemy.vx * duration * .75, .35, enemy.actor.root.position.z + enemy.vz * duration * .75);
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(.23, 10, 8), new THREE.MeshStandardMaterial({ color: '#d8ad61', emissive: '#9f431d', emissiveIntensity: 1.3, metalness: .7, roughness: .4 }));
+      mesh.name = 'cannon-shell'; mesh.position.copy(start); scene.add(mesh); world.fireTower(plot.id); towerReady.set(plot.id, elapsed + 1.8);
+      shots.push({ mesh, kind: 'cannon', start, end, vx: 0, vz: 0, age: 0, duration, damage: state.stage >= 5 ? 4 : 3 });
     }
-    for (let i = arrows.length - 1; i >= 0; i--) { const arrow = arrows[i]; arrow.age += dt; arrow.mesh.position.lerpVectors(arrow.start, arrow.end, clamp(arrow.age / .3, 0, 1)); arrow.mesh.position.y += Math.sin(clamp(arrow.age / .3, 0, 1) * Math.PI) * .7; if (arrow.age >= .3) { scene.remove(arrow.mesh); disposeObject(arrow.mesh); arrows.splice(i, 1); } }
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const shot = shots[i]; shot.age += dt; let remove = false;
+      if (shot.kind === 'cannon') {
+        const progress = clamp(shot.age / shot.duration, 0, 1); shot.mesh.position.lerpVectors(shot.start, shot.end, progress); shot.mesh.position.y += Math.sin(progress * Math.PI) * 3;
+        if (progress >= 1) {
+          impact(shot.end.x, shot.end.z, 3.6, '#ffbd73', true); sound('build');
+          for (const enemy of [...enemies]) if (Math.hypot(enemy.actor.root.position.x - shot.end.x, enemy.actor.root.position.z - shot.end.z) < 3.6) damageEnemy(enemy, shot.damage);
+          remove = true;
+        }
+      } else {
+        const fromX = shot.mesh.position.x, fromZ = shot.mesh.position.z, toX = fromX + shot.vx * dt, toZ = fromZ + shot.vz * dt;
+        const blocked = !lineClear(fromX, fromZ, toX, toZ, .07);
+        const target = !blocked ? enemies.filter(enemy => distanceToSegment(enemy.actor.root.position.x, enemy.actor.root.position.z, fromX, fromZ, toX, toZ) < .68).sort((a, b) => Math.hypot(a.actor.root.position.x - fromX, a.actor.root.position.z - fromZ) - Math.hypot(b.actor.root.position.x - fromX, b.actor.root.position.z - fromZ))[0] : undefined;
+        shot.mesh.position.x = toX; shot.mesh.position.z = toZ;
+        if (target) { impact(toX, toZ, .8, '#bcf1ed'); damageEnemy(target, shot.damage); }
+        remove = blocked || Boolean(target) || shot.age >= shot.duration;
+      }
+      if (remove) { scene.remove(shot.mesh); disposeObject(shot.mesh); shots.splice(i, 1); }
+    }
     for (let i = enemyArrows.length - 1; i >= 0; i--) {
       if (state.phase !== 'playing') break;
       const arrow = enemyArrows[i], startX = arrow.mesh.position.x, startZ = arrow.mesh.position.z;
@@ -453,6 +562,91 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
         scene.remove(arrow.mesh); disposeObject(arrow.mesh); enemyArrows.splice(i, 1);
         if (hit) hurtHero(arrow.damage);
       }
+    }
+  };
+  const updateEffects = (dt: number) => {
+    for (let i = corpses.length - 1; i >= 0; i--) {
+      const corpse = corpses[i]; corpse.age += dt; const progress = clamp(corpse.age / .7, 0, 1);
+      corpse.actor.root.rotation.z = -Math.sin(progress * Math.PI / 2) * 1.48; corpse.actor.root.position.y = corpse.y + .08;
+      corpse.actor.root.traverse(object => { if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) { material.transparent = true; material.opacity = 1 - clamp((progress - .25) / .75, 0, 1); material.depthWrite = false; } });
+      if (progress >= 1) { scene.remove(corpse.actor.root); disposeObject(corpse.actor.root); corpses.splice(i, 1); }
+    }
+    for (const item of loot) { item.root.rotation.y = visualTime * .7; item.root.position.y = world.groundHeight(item.x, item.z) + .12 + Math.sin(visualTime * 2.4 + item.x) * .07; }
+    for (let i = impacts.length - 1; i >= 0; i--) {
+      const effect = impacts[i]; effect.age += dt; const progress = clamp(effect.age / .55, 0, 1); effect.mesh.scale.setScalar(.15 + effect.radius * progress); effect.mesh.material.opacity = (1 - progress) * .9;
+      for (const child of effect.mesh.children) if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) child.material.opacity = (1 - progress) * .9;
+      if (progress >= 1) { scene.remove(effect.mesh); disposeObject(effect.mesh); impacts.splice(i, 1); }
+    }
+  };
+  type Advisor = (typeof advisors)[number];
+  const planCompanionRoute = (position: THREE.Vector3, x: number, z: number) => {
+    if (navDirty) rebuildNavigation();
+    const start = navIndex(position.x, position.z), free = findFree(x, z, .4), target = navIndex(free.x, free.z);
+    const previous = new Int32Array(nav.length).fill(-1), queue = [start]; previous[start] = start;
+    for (let head = 0; head < queue.length && previous[target] === -1; head++) {
+      const cell = queue[head], cx = cell % navWidth, cz = Math.floor(cell / navWidth);
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx, nz = cz + dz; if (nx < 0 || nx >= navWidth || nz < 0 || nz >= navHeight) continue;
+        const next = nz * navWidth + nx; if (previous[next] !== -1 || (!navWalk[next] && next !== target)) continue; previous[next] = cell; queue.push(next);
+      }
+    }
+    const route: { x: number; z: number }[] = []; if (previous[target] === -1) return route;
+    for (let cell = target; cell !== start; cell = previous[cell]) route.push({ x: navMinX + cell % navWidth * NAV_STEP, z: navMinZ + Math.floor(cell / navWidth) * NAV_STEP });
+    return route.reverse();
+  };
+  const walkCompanion = (advisor: Advisor, x: number, z: number, dt: number, stop = .8) => {
+    const position = advisor.actor.root.position, distance = Math.hypot(x - position.x, z - position.z);
+    if (distance <= stop) return;
+    let tx = x, tz = z; advisor.routeTime -= dt;
+    if (!lineClear(position.x, position.z, x, z, .4)) {
+      const key = `${Math.round(x / NAV_STEP)},${Math.round(z / NAV_STEP)}`;
+      if (advisor.routeTime <= 0 || advisor.routeTarget !== key || advisor.route.length === 0) { advisor.route = planCompanionRoute(position, x, z); advisor.routeTarget = key; advisor.routeTime = .85; }
+      while (advisor.route[0] && Math.hypot(advisor.route[0].x - position.x, advisor.route[0].z - position.z) < .65) advisor.route.shift();
+      if (advisor.route[0]) { tx = advisor.route[0].x; tz = advisor.route[0].z; }
+    }
+    const dx = tx - position.x, dz = tz - position.z, length = Math.hypot(dx, dz); if (length < .01) return;
+    const speed = Math.min((distance > 12 ? 10.5 : 7.4) * dt, length), beforeX = position.x, beforeZ = position.z;
+    move(position, dx / length * speed, dz / length * speed, .4); advisor.moving = Math.hypot(position.x - beforeX, position.z - beforeZ) > .002;
+    const desired = Math.atan2(dx, dz); advisor.actor.root.rotation.y += Math.atan2(Math.sin(desired - advisor.actor.root.rotation.y), Math.cos(desired - advisor.actor.root.rotation.y)) * Math.min(1, dt * 10);
+  };
+  const updateCompanions = (dt: number) => {
+    for (const advisor of advisors) {
+      advisor.moving = false; advisor.cooldown = Math.max(0, advisor.cooldown - dt); advisor.attackTime = Math.max(0, advisor.attackTime - dt);
+      const position = advisor.actor.root.position, name = advisor.config.id === 'theron' ? 'Theron' : 'Mira';
+      if (advisor.action === 'build') {
+        const reserved = advisors.filter(other => other !== advisor).map(other => other.targetPlot);
+        let plot = map.plots.find(item => item.id === advisor.targetPlot && !state.buildings.some(building => building.plotId === item.id));
+        if (!plot) { advisor.work = 0; plot = map.plots.filter(item => !reserved.includes(item.id) && !state.buildings.some(building => building.plotId === item.id)).sort((a, b) => Math.hypot(a.x - position.x, a.z - position.z) - Math.hypot(b.x - position.x, b.z - position.z))[0]; advisor.targetPlot = plot?.id ?? null; }
+        const blueprint = BLUEPRINTS.find(item => item.id === advisor.building)!;
+        if (!plot) advisor.description = 'Every plot is occupied';
+        else if (!canBuild(state, advisor.building, plot.id)) { advisor.work = 0; advisor.description = `Waiting for materials · ${buildingCostReason(state, advisor.building, plot.id) ?? ''}`; }
+        else if (Math.hypot(plot.x - position.x, plot.z - position.z) > 2.8) { advisor.description = `Walking to build ${blueprint.name}`; walkCompanion(advisor, plot.x, plot.z, dt, 2.55); }
+        else {
+          advisor.work += dt; advisor.description = `Building ${blueprint.name} · ${Math.ceil(Math.max(0, 6 - advisor.work))}s`;
+          advisor.actor.root.rotation.y = Math.atan2(plot.x - position.x, plot.z - position.z);
+          if (advisor.work >= 6) { completeBuilding(plot.id, advisor.building, name); advisor.work = 0; advisor.targetPlot = null; advisor.route = []; }
+        }
+      } else if (advisor.action === 'follow' || advisor.action === 'fight') {
+        const p = hero.root.position;
+        const target = advisor.action === 'fight' ? enemies.filter(enemy => Math.hypot(enemy.actor.root.position.x - p.x, enemy.actor.root.position.z - p.z) < 19).sort((a, b) => a.actor.root.position.distanceToSquared(position) - b.actor.root.position.distanceToSquared(position))[0] : undefined;
+        if (target) {
+          const targetPosition = target.actor.root.position, range = Math.hypot(targetPosition.x - position.x, targetPosition.z - position.z), ranged = advisor.config.id === 'mira';
+          advisor.description = ranged ? 'Covering you with bow fire' : 'Intercepting a raider';
+          if (range > (ranged ? 12 : 2.65) || !lineClear(position.x, position.z, targetPosition.x, targetPosition.z, .15)) walkCompanion(advisor, targetPosition.x, targetPosition.z, dt, ranged ? 10 : 2.1);
+          else if (advisor.cooldown <= 0) {
+            advisor.actor.root.rotation.y = Math.atan2(targetPosition.x - position.x, targetPosition.z - position.z); advisor.attackTime = .42; advisor.cooldown = ranged ? 2.2 : 1.1;
+            if (ranged) launchBow(position, targetPosition, state.stage >= 5 ? 2 : 1);
+            else { impact(targetPosition.x, targetPosition.z, 1.3, '#f3cb8c'); damageEnemy(target, state.stage >= 5 ? 2 : 1); }
+          }
+        } else { advisor.description = advisor.action === 'fight' ? 'Following you · watching for raiders' : 'Following you'; walkCompanion(advisor, p.x + (advisor.config.id === 'theron' ? -2.4 : 2.4), p.z + 1.5, dt, 1.1); }
+      }
+      advisor.actor.animate(visualTime + (advisor.config.id === 'mira' ? 1 : 2.5), advisor.moving ? 1 : 0, false);
+      advisor.hammer.visible = advisor.action === 'build' || (advisor.action === 'fight' && advisor.config.id === 'theron'); advisor.bow.visible = advisor.action === 'fight' && advisor.config.id === 'mira';
+      if (advisor.rig.arm && (advisor.work > 0 || advisor.attackTime > 0)) {
+        advisor.rig.arm.rotation.x = advisor.bow.visible ? -1.3 : -1.25 + Math.sin(visualTime * 14) * 1.15; advisor.rig.arm.rotation.z = advisor.bow.visible ? -.35 : .28;
+        if (advisor.rig.elbow) advisor.rig.elbow.rotation.x = -.45;
+      }
+      advisor.marker.position.set(position.x, position.y + 3.1 + Math.sin(visualTime * 2) * .12, position.z); advisor.marker.rotation.y = visualTime;
     }
   };
   const updatePrank = (dt: number) => {
@@ -472,7 +666,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   const keydown = (event: KeyboardEvent) => {
     if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable=true]') || !active()) return;
     const key = keyMap[event.code]; if (key) { movement[key] = true; event.preventDefault(); return; }
-    if (['KeyE', 'KeyF', 'Space', 'KeyC', 'KeyQ', 'KeyR'].includes(event.code)) { event.preventDefault(); if (event.repeat) return; if (event.code === 'KeyE') interact(); else if (event.code === 'KeyF' || event.code === 'Space') attack(); else if (event.code === 'KeyC') dodge(); else cycleBuilding(event.code === 'KeyQ' ? -1 : 1); }
+    if (['KeyE', 'KeyF', 'Space', 'KeyC', 'KeyQ', 'KeyR'].includes(event.code)) { event.preventDefault(); if (event.repeat) return; if (event.code === 'KeyE') interact(); else if (event.code === 'KeyF' || event.code === 'Space') attack(); else if (event.code === 'KeyC') dodge(); else cycleWeapon(event.code === 'KeyQ' ? -1 : 1); }
   };
   const keyup = (event: KeyboardEvent) => { const key = keyMap[event.code]; if (key) movement[key] = false; };
   const pointerdown = (event: PointerEvent) => { if (event.button !== 0 || !active()) return; drag = true; dragPointer = event.pointerId; dragX = event.clientX; dragY = event.clientY; canvas.setPointerCapture(event.pointerId); };
@@ -503,6 +697,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
         walking = THREE.MathUtils.damp(walking, Math.min(1, length), 10, dt); hero.animate(visualTime, walking, sprinting);
         updateCombat(dt);
         if (state.phase === 'playing') {
+          updateCompanions(dt); updateEffects(dt);
           if (!raidWarned && nextRaidAt - elapsed <= 4 && nextRaidAt < RUN_DURATION) { raidWarned = true; showHint(`Raid ${wave + 1} in ${Math.ceil(Math.max(0, nextRaidAt - elapsed))} seconds. Find cover or a watchtower.`, 4); }
           if (elapsed >= nextRaidAt) {
             // A stalled frame skips missed raid slots instead of dumping many armies at once.
@@ -513,8 +708,11 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
           for (const [id, ready] of nodeReady) if (elapsed >= ready) { nodeReady.delete(id); world.setNodeAvailable(id, true); }
           updateNearest();
         }
-        slash.visible = attackVisual > 0 && state.phase === 'playing'; slash.position.copy(hero.root.position).add(new THREE.Vector3(0, .85, 0)); slash.rotation.z = -hero.root.rotation.y + .4 - attackVisual * 8; slashMaterial.opacity = attackVisual / .28 * .85;
-        if (swordArm && attackVisual > 0) { swordArm.rotation.x = -1.15; swordArm.rotation.z = -.8 + (1 - attackVisual / .28) * 2; if (swordElbow) swordElbow.rotation.x = -.4; }
+        slash.visible = attackVisual > 0 && attackKind === 'sword' && state.phase === 'playing'; slash.position.copy(hero.root.position).add(new THREE.Vector3(0, .85, 0)); slash.rotation.z = -hero.root.rotation.y + .4 - attackVisual * 8; slashMaterial.opacity = attackVisual / .28 * .85;
+        if (swordArm && attackVisual > 0) {
+          swordArm.rotation.x = attackKind === 'hammer' ? -1.3 + Math.cos(attackVisual / .48 * Math.PI) * 1.2 : -1.15;
+          swordArm.rotation.z = attackKind === 'bow' ? -.4 : attackKind === 'hammer' ? .25 : -.8 + (1 - attackVisual / .28) * 2; if (swordElbow) swordElbow.rotation.x = -.4;
+        }
         dodgeRing.visible = invulnerable > 0 && state.phase === 'playing'; dodgeRing.position.copy(hero.root.position).add(new THREE.Vector3(0, .08, 0)); dodgeRing.scale.setScalar(1 + dashRemaining * 2);
         hero.root.rotation.z = hitFlash > 0 ? Math.sin(hitFlash * 40) * .06 : 0;
       }
@@ -522,7 +720,7 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
     else hero.animate(visualTime, 0, false);
     // Apply the last legend frame once, so the frozen result shows the complete collapse.
     if (state.outcome !== 'fallen') {
-      for (const { actor, marker, config } of advisors) { actor.animate(visualTime + (config.id === 'mira' ? 1 : 2.5), 0, false); marker.position.y = 3.1 + Math.sin(visualTime * 2) * .12; marker.rotation.y = visualTime; }
+      if (state.phase !== 'playing') for (const { actor, marker, config } of advisors) { actor.animate(visualTime + (config.id === 'mira' ? 1 : 2.5), 0, false); marker.position.set(actor.root.position.x, actor.root.position.y + 3.1 + Math.sin(visualTime * 2) * .12, actor.root.position.z); marker.rotation.y = visualTime; }
       world.update(visualTime, dt, state, elapsed < markedUntil); waterUniforms.uTime.value = visualTime;
       const dusk = state.phase === 'disaster' || state.outcome === 'legend' ? clamp(state.finaleTime / 5, 0, .8) : clamp((RUN_DURATION - state.timeLeft - 85) / 90, 0, .3);
       skyMaterial.uniforms.dusk.value = dusk; waterUniforms.uDusk.value = dusk; sun.intensity = 3.7 - dusk * 1.4; sun.color.set(state.phase === 'disaster' || state.outcome === 'legend' ? '#ffc392' : map.theme === 'desert' ? '#ffdeb0' : '#fff0c8'); ambient.intensity = 2.2 - dusk * .6;
@@ -569,14 +767,14 @@ export function createTroyGame(canvas: HTMLCanvasElement, callbacks: TroyCallbac
   };
   world.sync(state); camera.position.set(26, 65, 88); camera.lookAt((map.bounds.minX + map.bounds.maxX) / 2, 1.2, (map.bounds.minZ + map.bounds.maxZ) / 2); frame = requestAnimationFrame(animate);
   queueMicrotask(() => { if (!destroyed) { emit(); callbacks.onReady(); } });
-  return { start, pause, resume, interact, attack, dodge, selectBuilding, cycleBuilding,
+  return { start, pause, resume, interact, attack, dodge, selectBuilding, cycleBuilding, buildAtPlot, selectWeapon, cycleWeapon, commandCompanion,
     // Advisors speak in a paused dialog; the reveal clock begins when play resumes.
     markSupplies: () => { if (destroyed || state.phase !== 'playing') return; markedUntil = elapsed + 10; showEvent('oracle', 'Resource deposits are marked for ten seconds.'); },
     setInput: (action, pressed) => { if (active() || !pressed) movement[action] = pressed; },
     setControllerInput: input => { const axis = (value: number) => Number.isFinite(value) ? clamp(value, -1, 1) : 0; controller = active() ? { x: axis(input.x), y: axis(input.y), lookX: axis(input.lookX), lookY: axis(input.lookY), sprint: Boolean(input.sprint) } : neutralController(); },
     setMuted: muted => { audioMuted = muted; if (muted && audio?.state === 'running') void audio.suspend(); else if (!muted && !paused && audio?.state === 'suspended') void audio.resume(); },
     destroy: () => {
-      if (destroyed) return; destroyed = true; cancelAnimationFrame(frame); observer.disconnect(); clearInput(); clearEnemies(); clearArrows();
+      if (destroyed) return; destroyed = true; cancelAnimationFrame(frame); observer.disconnect(); clearInput(); clearEnemies(); clearArrows(); clearEffects();
       window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', onBlur); document.removeEventListener('visibilitychange', onVisibility);
       canvas.removeEventListener('pointerdown', pointerdown); canvas.removeEventListener('pointermove', pointermove); canvas.removeEventListener('pointerup', pointerup); canvas.removeEventListener('pointercancel', pointerup); canvas.removeEventListener('wheel', wheel);
       disposeObject(scene); world.dispose(); marbleTexture.dispose(); skyTexture.dispose(); sun.shadow.map?.dispose(); renderer.dispose(); if (audio) void audio.close();

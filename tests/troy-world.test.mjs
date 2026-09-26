@@ -92,3 +92,50 @@ test('all four finales destroy all thirty plots in every biome and reset without
     } finally { release(world); }
   }
 });
+
+test('tower cannons aim their real muzzle, recoil and emit smoke, then reset without stale rigs', () => {
+  const map = createCityMap(1, 47), world = createTroyWorld(map), state = makeState(map, 1);
+  const towerPlot = map.plots[0]; state.buildings = [{ plotId: towerPlot.id, kind: 'tower', builtAt: 0 }, { plotId: map.plots[1].id, kind: 'house', builtAt: 0 }];
+  try {
+    assert.equal(world.getCannonMuzzle(towerPlot.id), null); world.sync(state);
+    for (let i = 0; i < 10; i++) world.update(i / 10, .1, state, false);
+    assert.equal(world.getCannonMuzzle(map.plots[1].id), null);
+    world.aimTower(towerPlot.id, towerPlot.x, towerPlot.z - 10);
+    const north = world.getCannonMuzzle(towerPlot.id); assert.ok(north.z < towerPlot.z - 1); assert.ok(Math.abs(north.x - towerPlot.x) < .01); assert.ok(north.y > 5.5 && north.y < 6.5);
+    world.aimTower(towerPlot.id, towerPlot.x + 10, towerPlot.z);
+    const east = world.getCannonMuzzle(towerPlot.id); assert.ok(east.x > towerPlot.x + 1); assert.ok(Math.abs(east.z - towerPlot.z) < .01);
+    world.aimTower(towerPlot.id, NaN, Infinity); assert.deepEqual(world.getCannonMuzzle(towerPlot.id), east);
+    world.fireTower(towerPlot.id);
+    const fired = world.getCannonMuzzle(towerPlot.id); assert.ok(fired.x < east.x - .2, 'the barrel physically recoils');
+    const turret = world.root.getObjectByName('Rotating bronze cannon'), flash = turret.getObjectByName('Cannon muzzle flash'), smoke = turret.getObjectByName('Cannon smoke');
+    assert.equal(flash.visible, true);
+    world.update(99, 0, state, false); assert.deepEqual(world.getCannonMuzzle(towerPlot.id), fired, 'zero simulation delta freezes recoil');
+    world.update(99.04, .04, state, false); assert.equal(flash.visible, true); assert.equal(smoke.visible, true);
+    for (let i = 0; i < 9; i++) world.update(100 + i * .05, .05, state, false);
+    assert.equal(flash.visible, false); assert.equal(smoke.visible, false); assert.ok(world.getCannonMuzzle(towerPlot.id).distanceTo(east) < .001);
+    const barrelGeometries = new Set(turret.getObjectByName('Cannon recoiling barrel').children.filter(o => o.isMesh).map(o => o.geometry));
+    let disposed = 0; barrelGeometries.forEach(geometry => geometry.addEventListener('dispose', () => disposed++));
+    world.reset(); assert.equal(world.getCannonMuzzle(towerPlot.id), null); assert.equal(world.root.getObjectByName('Rotating bronze cannon'), undefined); assert.equal(disposed, barrelGeometries.size);
+    world.fireTower('missing'); world.aimTower('missing', 0, 0);
+  } finally { release(world); }
+});
+
+const arsenalSource = compile('../app/troy/arsenal.ts').replace("from 'three'", `from '${import.meta.resolve('three')}'`);
+const { createWeaponModel, createWeaponLoot, disposeWeaponModel } = await import(moduleURL(arsenalSource));
+const THREE = await import('three');
+
+test('held and dropped weapons have distinct forward-facing silhouettes and independent ownership', () => {
+  const expectedParts = { sword: 'Forged leaf sword blade', bow: 'Curved ash bow limbs', hammer: 'Long oak hammer haft' };
+  for (const kind of ['sword', 'bow', 'hammer']) {
+    const held = createWeaponModel(kind), loot = createWeaponLoot(kind);
+    assert.ok(held.getObjectByName(expectedParts[kind])); assert.ok(loot.getObjectByName('Weapon loot halo'));
+    const bounds = new THREE.Box3().setFromObject(held); assert.ok(bounds.max.z > .9, `${kind} points forward from its origin grip`); assert.ok(bounds.min.z < 0);
+    if (kind === 'bow') { assert.ok(bounds.max.y > .8 && bounds.min.y < -.8); assert.ok(held.getObjectByName('Nocked arrow shaft')); assert.ok(held.getObjectByName('Upper bowstring')); }
+    const geometries = new Set(), materials = new Set(); let heldDisposals = 0, lootDisposals = 0;
+    held.traverse(o => { if (o.isMesh) { geometries.add(o.geometry); materials.add(o.material); } });
+    geometries.forEach(g => g.addEventListener('dispose', () => heldDisposals++)); materials.forEach(m => m.addEventListener('dispose', () => heldDisposals++));
+    loot.traverse(o => { if (o.isMesh) { assert.ok(!geometries.has(o.geometry)); assert.ok(!materials.has(o.material)); o.geometry.addEventListener('dispose', () => lootDisposals++); } });
+    disposeWeaponModel(held); assert.equal(heldDisposals, geometries.size + materials.size); assert.equal(lootDisposals, 0, 'discarding a held model cannot dispose a pickup');
+    disposeWeaponModel(loot); assert.ok(lootDisposals > 0);
+  }
+});

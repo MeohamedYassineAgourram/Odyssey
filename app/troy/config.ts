@@ -1,10 +1,15 @@
-import type { Blueprint, EndingKind, Material, Mission, Plot } from './types';
+import type { Blueprint, EndingKind, Material, Mission, Plot, WeaponKind } from './types';
 export const RUN_DURATION = 120;
 export const FINALE_DURATION = 9;
+export const WEAPONS: { id: WeaponKind; name: string; description: string }[] = [
+  { id: 'sword', name: 'Bronze sword', description: 'A reliable blade for close combat.' },
+  { id: 'bow', name: 'Hunter’s bow', description: 'Keep your distance and strike from range.' },
+  { id: 'hammer', name: 'War hammer', description: 'Heavy blows for enemies crowding around you.' },
+];
 export const BLUEPRINTS: Blueprint[] = [
   { id: 'house', name: 'Trojan house', description: 'Raise a home. A fast, affordable foundation for your legend.', cost: { wood: 3, stone: 1, bronze: 0 }, points: 100 },
   { id: 'farm', name: 'Timber yard', description: 'Produces 1 timber every 8 seconds. Build early to grow faster.', cost: { wood: 2, stone: 2, bronze: 0 }, points: 140 },
-  { id: 'tower', name: 'Watchtower', description: 'Archers automatically defend nearby streets during raids.', cost: { wood: 3, stone: 3, bronze: 1 }, points: 230 },
+  { id: 'tower', name: 'Cannon tower', description: 'A mounted cannon automatically blasts nearby raiders.', cost: { wood: 3, stone: 3, bronze: 1 }, points: 230 },
   { id: 'temple', name: 'Temple of Troy', description: 'A glorious landmark. Restores 4 health every 8 seconds.', cost: { wood: 4, stone: 4, bronze: 2 }, points: 400 },
 ];
 export const PLOTS: Plot[] = [
@@ -29,8 +34,8 @@ export const MISSIONS: Mission[] = [
   { id: 'supply-lines', title: 'Open the supply lines', description: 'Collect from 3 resource deposits.', metric: 'gathered', target: 3, reward: { wood: 3, stone: 3, bronze: 2 }, points: 60 },
   { id: 'growing-troy', title: 'Three roofs, one dream', description: 'Construct 3 buildings of any kind.', metric: 'buildings', target: 3, reward: { wood: 4, stone: 4, bronze: 1 }, points: 90 },
   { id: 'industry', title: 'The wheels of industry', description: 'Build a timber yard.', metric: 'farm', target: 1, reward: { wood: 2, stone: 3, bronze: 1 }, points: 70 },
-  { id: 'watch', title: 'Eyes on the horizon', description: 'Build a watchtower.', metric: 'tower', target: 1, reward: { wood: 3, stone: 4, bronze: 1 }, points: 80 },
-  { id: 'defender', title: 'Not without a fight', description: 'Defeat 3 raiders with sword or towers.', metric: 'kills', target: 3, reward: { wood: 5, stone: 4, bronze: 2 }, points: 100 },
+  { id: 'watch', title: 'Eyes on the horizon', description: 'Build a cannon tower.', metric: 'tower', target: 1, reward: { wood: 3, stone: 4, bronze: 1 }, points: 80 },
+  { id: 'defender', title: 'Not without a fight', description: 'Defeat 3 raiders with weapons, allies, or towers.', metric: 'kills', target: 3, reward: { wood: 5, stone: 4, bronze: 2 }, points: 100 },
   { id: 'district', title: 'A city worth remembering', description: 'Construct 6 buildings.', metric: 'buildings', target: 6, reward: { wood: 4, stone: 4, bronze: 2 }, points: 140 },
   { id: 'glory', title: 'A monument to impossible hope', description: 'Complete a temple.', metric: 'temple', target: 1, reward: { wood: 4, stone: 3, bronze: 1 }, points: 150 },
 ];

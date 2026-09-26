@@ -6,6 +6,7 @@ export const troyProfiles = sqliteTable('troy_profiles', {
   runs: integer('runs').notNull().default(0), clears: integer('clears').notNull().default(0),
   stage: integer('stage').notNull().default(1), endings: text('endings').notNull().default('[]'),
   lastEnding: text('last_ending'), updatedAt: integer('updated_at').notNull().default(0),
+  weapons: text('weapons').notNull().default('["sword"]'),
 });
 
 export const troyRunReceipts = sqliteTable('troy_run_receipts', {
@@ -14,4 +15,5 @@ export const troyRunReceipts = sqliteTable('troy_run_receipts', {
   breakdown: text('breakdown').notNull(), score: integer('score').notNull(),
   ending: text('ending').notNull(), outcome: text('outcome').notNull(),
   applied: integer('applied').notNull().default(0), createdAt: integer('created_at').notNull(),
+  weapons: text('weapons').notNull().default('["sword"]'),
 }, table => [index('idx_troy_run_receipts_user_id').on(table.userId)]);

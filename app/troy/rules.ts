@@ -1,6 +1,6 @@
-import { BLUEPRINTS, ENDINGS, FINALE_DURATION, MISSIONS, RUN_DURATION } from './config';
+import { BLUEPRINTS, ENDINGS, FINALE_DURATION, MISSIONS, RUN_DURATION, WEAPONS } from './config';
 import { createCityMap } from './maps';
-import type { BuildingKind, EndingKind, Material, Materials, Mission, MissionProgress, RunState } from './types';
+import type { BuildingKind, EndingKind, Material, Materials, Mission, MissionProgress, RunState, WeaponKind } from './types';
 
 const MATERIALS: Material[] = ['wood', 'stone', 'bronze'];
 const PRODUCTION_INTERVAL = 8;
@@ -39,7 +39,7 @@ function rewardMissions(state: RunState): RunState {
   return score({ ...state, materials, missionScore, completedMissions: [...completed] });
 }
 
-export function createRun(seed: number, previousEnding?: EndingKind, stage = 1): RunState {
+export function createRun(seed: number, previousEnding?: EndingKind, stage = 1, weapons: WeaponKind[] = ['sword']): RunState {
   const cleanSeed = Number.isFinite(seed) ? (Math.abs(Math.trunc(seed)) >>> 0) || 1 : 1;
   // An integer avalanche keeps adjacent seeds from cycling through the endings.
   let hash = cleanSeed;
@@ -50,6 +50,7 @@ export function createRun(seed: number, previousEnding?: EndingKind, stage = 1):
   return {
     seed: cleanSeed, stage: Number.isFinite(stage) ? Math.max(1, Math.min(10_000, Math.floor(stage))) : 1, phase: 'playing', timeLeft: RUN_DURATION, health: 100,
     materials: { wood: 3, stone: 2, bronze: 0 }, buildings: [], gathered: 0, kills: 0, completedMissions: [],
+    weapons: ['sword', ...WEAPONS.filter(item => item.id !== 'sword' && Array.isArray(weapons) && weapons.includes(item.id)).map(item => item.id)], weapon: 'sword',
     explored: [], expeditionScore: 0, constructionScore: 0, missionScore: 0, combatScore: 0, survivalScore: 0, score: 0,
     ending: endings[Math.floor(hash / 0x100000000 * endings.length)],
     finaleTime: 0, productionTime: 0, outcome: 'none',
@@ -125,6 +126,16 @@ export function gather(state: RunState, resource: Material, amount: number): Run
 export function recordKill(state: RunState): RunState {
   if (state.phase !== 'playing') return state;
   return rewardMissions({ ...state, kills: add(state.kills, 1), combatScore: add(state.combatScore, 35) });
+}
+
+export function collectWeapon(state: RunState, kind: WeaponKind): RunState {
+  if (state.phase !== 'playing' || !WEAPONS.some(item => item.id === kind) || state.weapons.includes(kind) || state.weapons.length >= 3) return state;
+  return { ...state, weapons: [...state.weapons, kind], weapon: kind };
+}
+
+export function equipWeapon(state: RunState, kind: WeaponKind): RunState {
+  if (state.phase !== 'playing' || kind === state.weapon || !WEAPONS.some(item => item.id === kind) || !state.weapons.includes(kind)) return state;
+  return { ...state, weapon: kind };
 }
 
 export function discoverLandmark(state: RunState, id: string): RunState {

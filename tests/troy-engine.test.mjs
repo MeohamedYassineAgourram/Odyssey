@@ -12,8 +12,8 @@ const sourceCache = new Map();
 
 // Exercise the actual engine, geometry, rules and world. Only browser/WebGL I/O is
 // stubbed; advancing frames still executes real movement, AI and collision code.
-function fixture(stage = 1) {
-  let now = 0, frame, snapshot, scene, world, updates = 0, disposedWorlds = 0, renders = 0;
+function fixture(stage = 1, weapons = ['sword']) {
+  let now = 0, frame, snapshot, scene, world, updates = 0, disposedWorlds = 0, renders = 0, buildPlot = null;
   const events = [], modules = new Map();
   class Renderer {
     shadowMap = {}; capabilities = { getMaxAnisotropy: () => 1 };
@@ -54,13 +54,14 @@ function fixture(stage = 1) {
   };
   const api = load('app/troy/engine.ts'), maps = load('app/troy/maps.ts');
   const canvas = { getBoundingClientRect: () => ({ width: 1440, height: 900 }), addEventListener() {}, removeEventListener() {}, setPointerCapture() {} };
-  const engine = api.createTroyGame(canvas, { onReady() {}, onUpdate: value => { snapshot = value; }, onEvent: event => events.push(event), onTalk() {} }, undefined, stage);
+  const engine = api.createTroyGame(canvas, { onReady() {}, onUpdate: value => { snapshot = value; }, onEvent: event => events.push(event), onTalk() {}, onBuildPlot: id => { buildPlot = id; engine.pause(); } }, undefined, stage, weapons);
   const jump = seconds => { now += seconds * 1000; frame(now); };
   const advance = seconds => { for (let remaining = seconds; remaining > 1e-8;) { const dt = Math.min(.02, remaining); jump(dt); remaining -= dt; } };
   jump(.01);
   return {
     engine, api, events, jump, advance,
     get state() { return snapshot; }, get scene() { return scene; }, get world() { return world; },
+    get buildPlot() { return buildPlot; },
     get map() { return maps.createCityMap(snapshot.stage, snapshot.seed); },
     get updates() { return updates; }, get disposedWorlds() { return disposedWorlds; }, get renders() { return renders; },
     get hero() { return scene.getObjectByName('lyra'); },
@@ -89,7 +90,11 @@ test('new stages rebuild the correct city, discover treasure once, and release t
   try {
     assert.equal(f.state.stage, 3); assert.equal(f.map.theme, 'forest');
     f.engine.start(1); assert.equal(f.state.nextRaid, 18); assert.equal(f.state.stage, 1);
-    const plot = f.map.plots[0]; f.teleport(plot.x, plot.z); f.engine.interact();
+    const plot = f.map.plots[0]; f.engine.selectBuilding('temple'); f.teleport(plot.x, plot.z); f.engine.interact();
+    assert.equal(f.buildPlot, plot.id, 'an unaffordable selected design still opens the dashboard'); assert.equal(f.state.paused, true);
+    assert.equal(f.engine.buildAtPlot(plot.id, 'temple'), false); assert.equal(f.engine.buildAtPlot(f.map.plots[20].id, 'house'), false, 'remote construction is rejected');
+    assert.equal(f.engine.buildAtPlot(plot.id, 'house'), true, 'explicit affordable design can be built while the dashboard pauses play');
+    assert.equal(f.engine.buildAtPlot(plot.id, 'house'), false, 'an occupied plot cannot be charged twice'); f.engine.resume();
     assert.equal(f.state.buildings.length, 1); assert.equal(f.state.score, 160);
     assert.ok(f.api.canOccupyTroyPosition(f.state.player.x, f.state.player.z, f.world.colliders, .38, f.map.bounds), 'new construction moves the player clear of its walls');
     const landmark = f.map.landmarks[0]; f.teleport(landmark.x, landmark.z); assert.equal(f.state.nearest.kind, 'landmark'); f.engine.interact();
@@ -102,6 +107,77 @@ test('new stages rebuild the correct city, discover treasure once, and release t
     assert.equal(f.map.theme, 'desert'); assert.equal(f.state.stage, 2); assert.equal(f.state.buildings.length, 0); assert.equal(f.state.explored.length, 0); assert.equal(f.state.enemyPositions.length, 0);
     assert.equal(f.disposedWorlds, 2); assert.ok(!f.scene.children.includes(previousRoot));
     assert.equal(f.state.player.x, f.map.spawn.x); assert.equal(f.state.player.z, f.map.spawn.z);
+  } finally { f.engine.destroy(); }
+});
+
+test('falling raiders leave real weapon pickups and bow damage happens only on impact', () => {
+  const f = fixture();
+  try {
+    f.engine.start(1); f.jump(18.01); for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+    const archer = f.raiders.find(enemy => enemy.userData.enemyKind === 'archer'); archer.position.set(f.hero.position.x + 1, 0, f.hero.position.z);
+    f.engine.attack(); f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 1);
+    const corpse = f.scene.getObjectByName('fallen-archer'); assert.ok(corpse, 'defeated raider remains visible during its fall');
+    const drop = f.scene.children.find(object => object.userData.weaponKind === 'bow'); assert.ok(drop); assert.equal(f.state.weapons.length, 1);
+    f.advance(.3); assert.ok(Math.abs(corpse.rotation.z) > .2); assert.ok(corpse.parent, 'death is animated instead of an immediate disappearance');
+    f.teleport(drop.position.x, drop.position.z); assert.equal(f.state.nearest.kind, 'loot'); f.engine.interact();
+    assert.equal(f.state.weapon, 'bow'); assert.equal(f.state.weapons.length, 2); assert.ok(f.hero.getObjectByName('Equipped bow').visible);
+    f.advance(.4); assert.equal(corpse.parent, null, 'corpse is disposed after its short fade');
+    const skirmisher = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); skirmisher.position.set(f.hero.position.x + 8, 0, f.hero.position.z);
+    const before = f.state.kills; f.engine.attack(); assert.equal(f.state.kills, before); assert.ok(f.scene.getObjectByName('friendly-arrow'));
+    f.advance(.06); assert.equal(f.state.kills, before, 'a launched bow shot does not cause instant damage');
+    f.advance(.4); assert.equal(f.state.kills, before + 1);
+    const duplicate = f.scene.children.find(object => object.userData.weaponKind === 'sword'); f.teleport(duplicate.position.x, duplicate.position.z); f.engine.interact(); assert.equal(f.state.weapons.length, 2, 'duplicate drops do not consume another inventory slot');
+    f.engine.start(2, ['sword', 'bow', 'hammer']); f.engine.cycleWeapon(1); assert.equal(f.state.weapon, 'bow'); f.engine.cycleWeapon(1); assert.equal(f.state.weapon, 'hammer');
+    assert.equal(f.state.weapons.length, 3); f.engine.start(3); assert.equal(f.state.weapons.length, 3, 'carried unlocks survive the next expedition');
+  } finally { f.engine.destroy(); }
+});
+
+test('hammer has a slower powerful area strike and knocks surviving brutes back', () => {
+  const f = fixture(1, ['sword', 'hammer']);
+  try {
+    f.engine.start(1); f.engine.selectWeapon('hammer'); f.jump(18.01);
+    for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+    const brute = f.raiders.find(enemy => enemy.userData.enemyKind === 'brute'); brute.position.set(f.hero.position.x + 1.5, 0, f.hero.position.z);
+    for (const enemy of f.raiders.filter(enemy => enemy.userData.enemyKind === 'skirmisher')) enemy.position.set(f.hero.position.x + 2.5, 0, f.hero.position.z + .4);
+    const before = brute.position.distanceTo(f.hero.position); f.engine.attack(); assert.equal(f.state.kills, 2); assert.ok(brute.position.distanceTo(f.hero.position) > before + 1);
+    assert.ok(f.scene.getObjectByName('combat-impact')); f.engine.attack(); assert.equal(f.state.kills, 2);
+    f.advance(.7); f.engine.attack(); assert.equal(f.state.kills, 2, 'heavy attack has a longer cooldown');
+    f.advance(.4); f.engine.attack(); assert.equal(f.state.kills, 3);
+  } finally { f.engine.destroy(); }
+});
+
+test('cannon towers launch visible shells and score kills only after explosive impact', () => {
+  const f = fixture();
+  try {
+    f.engine.start(1);
+    const home = f.map.plots[0]; f.teleport(home.x, home.z); assert.equal(f.engine.buildAtPlot(home.id, 'house'), true);
+    const plot = f.map.plots[1]; f.teleport(plot.x, plot.z); assert.equal(f.engine.buildAtPlot(plot.id, 'tower'), true); f.advance(.9);
+    f.engine.pause(); f.engine.resume(); // Refresh the ten-hertz snapshot before aligning the raid frame.
+    f.jump(18.001 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) enemy.position.set(-43, 0, -36);
+    const target = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); target.position.set(plot.x + 10, 0, plot.z + 8);
+    f.advance(.02); const shell = f.scene.getObjectByName('cannon-shell'); assert.ok(shell); assert.equal(f.state.kills, 0);
+    const y = shell.position.y; f.advance(.12); assert.equal(f.state.kills, 0, 'muzzle flash and shot launch do not instantly kill'); assert.notEqual(shell.position.y, y);
+    f.advance(1.05); assert.ok(f.state.kills >= 1, 'shell explosion applies real damage and kill credit');
+    assert.ok(f.scene.children.some(object => object.userData.weaponKind === 'sword'));
+  } finally { f.engine.destroy(); }
+});
+
+test('companion orders queue during chat pause, walk and animate, pay for builds, and fight', () => {
+  const f = fixture();
+  try {
+    f.engine.start(1); const theron = f.scene.getObjectByName('theron'), original = theron.position.clone();
+    f.engine.pause(); assert.equal(f.engine.commandCompanion({ character: 'theron', action: 'build', building: 'house' }).accepted, true);
+    f.jump(15); assert.equal(f.state.buildings.length, 0); assert.equal(theron.position.distanceTo(original), 0);
+    f.engine.resume(); f.advance(5.8); assert.equal(f.state.buildings.length, 0, 'building requires walking and six seconds of visible work'); assert.ok(theron.position.distanceTo(original) > 1);
+    assert.ok(theron.getObjectByName('Equipped hammer').visible);
+    f.advance(2.2); assert.equal(f.state.buildings.length, 1); assert.equal(f.state.materials.wood, 4); assert.equal(f.state.materials.stone, 4); assert.equal(f.state.materials.bronze, 1);
+    f.engine.commandCompanion({ character: 'theron', action: 'build', building: 'temple' }); f.advance(7);
+    assert.equal(f.state.buildings.length, 1, 'helper cannot build an unaffordable temple for free'); assert.match(f.state.companions.find(item => item.character === 'theron').description, /Waiting for materials/);
+    f.engine.commandCompanion({ character: 'theron', action: 'follow' }); f.advance(.3);
+    f.jump(18.01 - (120 - f.state.timeLeft)); for (const enemy of f.raiders) enemy.position.set(43, 0, -36);
+    const skirmisher = f.raiders.find(enemy => enemy.userData.enemyKind === 'skirmisher'); skirmisher.position.set(theron.position.x + 1, 0, theron.position.z);
+    f.engine.commandCompanion({ character: 'theron', action: 'fight' }); f.advance(2.7); assert.ok(f.state.kills >= 1, 'helper attacks earn normal kill credit');
+    f.engine.commandCompanion({ character: 'mira', action: 'follow' }); assert.equal(f.state.companions.find(item => item.character === 'mira').action, 'follow');
   } finally { f.engine.destroy(); }
 });
 

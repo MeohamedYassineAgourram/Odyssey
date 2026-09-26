@@ -10,11 +10,11 @@ const compiled = mkdtempSync(join(tmpdir(), 'troy-tests-'));
 after(() => rmSync(compiled, { recursive: true, force: true }));
 execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--strict', '--target', 'ES2022', '--module', 'commonjs', '--moduleResolution', 'node', '--lib', 'esnext,dom', '--types', 'node', '--skipLibCheck', '--esModuleInterop', '--outDir', compiled, 'app/api/troy/converse/route.ts', 'app/troy/rules.ts'], { stdio: 'pipe' });
 const require = createRequire(import.meta.url);
-const { createRun, advanceRun, buildAt, gather, recordKill, takeDamage, getMissions, getRunMissions, discoverLandmark, canBuild, buildingCostReason } = require(join(compiled, 'troy/rules.js'));
+const { createRun, advanceRun, buildAt, gather, recordKill, takeDamage, getMissions, getRunMissions, discoverLandmark, canBuild, buildingCostReason, collectWeapon, equipWeapon } = require(join(compiled, 'troy/rules.js'));
 const { BLUEPRINTS, ENDINGS } = require(join(compiled, 'troy/config.js'));
 const { createCityMap } = require(join(compiled, 'troy/maps.js'));
 const PLOTS = createCityMap(1, 47).plots;
-const { localTroyConverse } = require(join(compiled, 'lib/troy-converse.js'));
+const { localTroyConverse, parseCompanionOrder } = require(join(compiled, 'lib/troy-converse.js'));
 const { POST } = require(join(compiled, 'api/troy/converse/route.js'));
 const freeze = value => { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) freeze(child); } return value; };
 const rich = () => ({ ...createRun(47), materials: { wood: 100, stone: 100, bronze: 100 } });
@@ -246,7 +246,7 @@ test('local advisors provide bounded Troy guidance, correct mechanics and limite
   assert.equal(intros.size, 3);
   assert.equal(localTroyConverse('theron', 'Find wood', context).action, 'mark_supplies');
   assert.match(localTroyConverse('mira', 'heal me', context).text, /4 health every 8 seconds/);
-  assert.match(localTroyConverse('lyra', 'fight', context).text, /35 points/);
+  assert.match(localTroyConverse('lyra', 'How do I fight?', context).text, /35 points/);
   assert.match(localTroyConverse('theron', 'help', { ...context, buildings: 0 }).text, /3 timber and 1 stone/);
   assert.match(localTroyConverse('mira', 'help', { ...context, phase: 'ended', health: 0 }).text, /raiders ended/);
 });
@@ -316,7 +316,7 @@ test('Gemini Interactions use low thinking and strict output, with safe local fa
   process.env.GEMINI_API_KEY = 'troy-secret-test-key';
   process.env.GEMINI_MODEL = 'test-model';
   let observed;
-  const provider = payload => Response.json({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: JSON.stringify(payload) }] }] });
+  const provider = payload => Response.json({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: JSON.stringify({ command: null, ...payload }) }] }] });
   try {
     globalThis.fetch = async (url, init) => { observed = { url, headers: init.headers, body: JSON.parse(init.body) }; return provider({ text: 'Gather stone from the eastern deposits.', action: 'mark_supplies' }); };
     const input = { ...body, history: [{ role: 'user', text: 'How can I build a tower?' }, { role: 'assistant', text: 'Gather timber, stone, and bronze.' }] };
@@ -327,7 +327,7 @@ test('Gemini Interactions use low thinking and strict output, with safe local fa
     assert.equal(observed.body.store, false);
     assert.equal(observed.body.model, 'test-model');
     assert.deepEqual(observed.body.generation_config, { thinking_level: 'low', max_output_tokens: 700 });
-    assert.deepEqual(observed.body.response_format.schema.required, ['text', 'action']);
+    assert.deepEqual(observed.body.response_format.schema.required, ['text', 'action', 'command']);
     assert.equal(observed.body.response_format.schema.additionalProperties, false);
     assert.deepEqual(JSON.parse(observed.body.input).conversationHistory, input.history);
     assert.ok(!observed.body.input.includes('troy-secret-test-key'));
@@ -352,5 +352,99 @@ test('Gemini Interactions use low thinking and strict output, with safe local fa
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = originalKey;
     if (originalModel === undefined) delete process.env.GEMINI_MODEL; else process.env.GEMINI_MODEL = originalModel;
+  }
+});
+
+test('weapon inventory is immutable, capped at three unique types, and equips only owned weapons', () => {
+  const first = freeze(createRun(8));
+  assert.deepEqual(first.weapons, ['sword']);
+  assert.equal(first.weapon, 'sword');
+  assert.equal(equipWeapon(first, 'bow'), first);
+  assert.equal(collectWeapon(first, 'sword'), first);
+  assert.equal(collectWeapon(first, 'laser'), first);
+  const bow = freeze(collectWeapon(first, 'bow'));
+  assert.deepEqual(bow.weapons, ['sword', 'bow']);
+  assert.equal(bow.weapon, 'bow');
+  assert.equal(collectWeapon(bow, 'bow'), bow);
+  const full = freeze(collectWeapon(bow, 'hammer'));
+  assert.equal(full.weapons.length, 3);
+  assert.equal(full.weapon, 'hammer');
+  assert.equal(equipWeapon(full, 'sword').weapon, 'sword');
+  assert.equal(equipWeapon(full, 'wand'), full);
+  const fallen = freeze(takeDamage(full, 100));
+  assert.equal(equipWeapon(fallen, 'bow'), fallen);
+  assert.equal(collectWeapon(fallen, 'bow'), fallen);
+  const carried = createRun(9, undefined, 3, ['bow', 'bow', 'hammer', 'wand']);
+  assert.deepEqual(carried.weapons, ['sword', 'bow', 'hammer']);
+  assert.equal(carried.weapon, 'sword');
+  assert.deepEqual(first.weapons, ['sword']);
+});
+
+test('direct companion orders work offline while advice, questions, negations, and unavailable phases never command', () => {
+  const orders = [
+    ['lyra', 'Theron go fight the raiders', { character: 'theron', action: 'fight' }],
+    ['lyra', 'Mira help me build more houses', { character: 'mira', action: 'build', building: 'house' }],
+    ['mira', 'build a cannon tower', { character: 'mira', action: 'build', building: 'tower' }],
+    ['lyra', 'follow me', { character: 'theron', action: 'follow' }],
+    ['theron', 'Please Mira, follow me', { character: 'mira', action: 'follow' }],
+    ['mira', 'Tell Theron to build a temple', { character: 'theron', action: 'build', building: 'temple' }],
+    ['theron', 'I want you to build a timber yard', { character: 'theron', action: 'build', building: 'farm' }],
+    ['theron', 'Build', { character: 'theron', action: 'build', building: 'tower' }],
+    ['theron', 'go and help me build more buildings', { character: 'theron', action: 'build', building: 'tower' }],
+    ['mira', 'help me go and kill raiders', { character: 'mira', action: 'fight' }],
+    ['lyra', 'Theron please go and help me slay the raiders', { character: 'theron', action: 'fight' }],
+    ['theron', 'assist the defenders', { character: 'theron', action: 'fight' }],
+  ];
+  for (const [character, message, command] of orders) {
+    assert.deepEqual(parseCompanionOrder(character, message, context.selected), command);
+    const result = localTroyConverse(character, message, context);
+    assert.deepEqual(result.command, command);
+    assert.equal(result.action, 'none');
+    assert.match(result.text, /when you resume/);
+    assert.doesNotMatch(result.text, /already|completed|have built/);
+    assert.ok(result.text.length <= 300);
+    for (const phase of ['ready', 'disaster', 'ended']) assert.equal(localTroyConverse(character, message, { ...context, phase }).command, undefined);
+  }
+  assert.deepEqual(parseCompanionOrder('theron', 'go and help me build more buildings', 'house'), { character: 'theron', action: 'build', building: 'house' });
+  for (const message of ['How do I fight?', 'What should I build?', 'Can you build a house?', 'Theron can you fight', 'Do not attack', 'Mira don’t build a house', 'Never fight', 'I think you should build a house', 'Tell me how to fight', 'Build a spaceship', 'Please stop following me']) {
+    assert.equal(parseCompanionOrder('theron', message, 'house'), null, message);
+    assert.equal(localTroyConverse('theron', message, context).command, undefined, message);
+  }
+});
+
+test('Gemini companion commands are whitelisted, intent-matched and truthful about queued actions', async () => {
+  const originalFetch = globalThis.fetch, originalKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'command-test-key';
+  const provider = command => Response.json({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: JSON.stringify({ text: 'Theron will build when you resume.', action: 'none', command }) }] }] });
+  const requested = { ...body, message: 'Theron build a cannon tower' };
+  try {
+    globalThis.fetch = async () => provider({ character: 'theron', action: 'build', building: 'tower' });
+    const valid = await (await POST(request(requested))).json();
+    assert.equal(valid.source, 'gemini');
+    assert.deepEqual(valid.command, { character: 'theron', action: 'build', building: 'tower' });
+    for (const command of [
+      { character: 'zeus', action: 'build', building: 'tower' },
+      { character: 'theron', action: 'give_supplies', building: null },
+      { character: 'theron', action: 'build', building: 'spaceship' },
+      { character: 'mira', action: 'fight', building: null },
+      { character: 'theron', action: 'build', building: 'tower', reward: 999 }, null,
+    ]) {
+      globalThis.fetch = async () => provider(command);
+      const fallback = await (await POST(request(requested))).json();
+      assert.equal(fallback.source, 'local');
+      assert.deepEqual(fallback.command, { character: 'theron', action: 'build', building: 'tower' });
+    }
+    globalThis.fetch = async () => provider({ character: 'theron', action: 'build', building: 'tower' });
+    for (const message of ['How do I build?', 'Do not build a cannon tower', 'Theron, can you build a tower?']) {
+      assert.equal((await (await POST(request({ ...body, message }))).json()).command, undefined);
+    }
+    assert.equal((await (await POST(request({ ...requested, context: { ...context, phase: 'disaster' } }))).json()).command, undefined);
+    globalThis.fetch = async () => Response.json({ status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: JSON.stringify({ text: 'I have built the tower.', action: 'none', command: { character: 'theron', action: 'build', building: 'tower' } }) }] }] });
+    const truthful = await (await POST(request(requested))).json();
+    assert.equal(truthful.source, 'local');
+    assert.match(truthful.text, /will/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = originalKey;
   }
 });

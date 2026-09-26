@@ -1,10 +1,10 @@
 import { boundedText, errorResponse, guardRequest, json, readJson, RequestError } from '../../../lib/api-guard';
 import { geminiTroyConverse, localTroyConverse, type TroyConverseContext, type TroyConverseTurn } from '../../../lib/troy-converse';
 import { serverEnv } from '../../../lib/server-env';
-import { BLUEPRINTS, RUN_DURATION } from '../../../troy/config';
+import { BLUEPRINTS, RUN_DURATION, WEAPONS } from '../../../troy/config';
 import { createCityMap } from '../../../troy/maps';
 import { getRunMissions } from '../../../troy/rules';
-import type { BuildingKind, CharacterId, Materials, TroyPhase } from '../../../troy/types';
+import type { BuildingKind, CharacterId, Materials, TroyPhase, WeaponKind } from '../../../troy/types';
 
 const CHARACTERS = ['lyra', 'mira', 'theron'];
 const PHASES = ['ready', 'playing', 'disaster', 'ended'];
@@ -27,7 +27,12 @@ function contextFrom(value: unknown): TroyConverseContext {
   const stage = boundedNumber(value.stage ?? 1, 'context.stage', 10_000), seed = boundedNumber(value.seed ?? 1, 'context.seed', 0xffffffff);
   if (stage < 1 || seed < 1) throw new RequestError('Invalid expedition stage or seed.');
   const map = createCityMap(stage, seed);
+  const weapons = value.weapons ?? ['sword'];
+  if (!Array.isArray(weapons) || weapons.length < 1 || weapons.length > 3 || new Set(weapons).size !== weapons.length || !weapons.includes('sword') || weapons.some(kind => !WEAPONS.some(item => item.id === kind))) throw new RequestError('Invalid weapon inventory.');
+  const weapon = value.weapon ?? 'sword';
+  if (!weapons.includes(weapon)) throw new RequestError('The equipped weapon must be owned.');
   return {
+    weapons: weapons as WeaponKind[], weapon: weapon as WeaponKind,
     stage, seed, explored: boundedNumber(value.explored ?? 0, 'context.explored', map.landmarks.length),
     phase: value.phase as TroyPhase, timeLeft: boundedNumber(value.timeLeft, 'context.timeLeft', RUN_DURATION, false),
     health: boundedNumber(value.health, 'context.health', 100, false), materials,
