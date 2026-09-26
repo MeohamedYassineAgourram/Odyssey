@@ -8,9 +8,11 @@ export type WorldSnapshot = {
   nearest: Nearby | null; player: { x: number; z: number }; stamina: number; paused: boolean;
 };
 export type GatherResult = { escaped: boolean; inventory: Inventory; companions: CharacterId[] };
+export type ControllerInput = { x: number; y: number; lookX: number; lookY: number; sprint: boolean };
 export type OracleEngine = {
   start(): void; pause(): void; resume(): void; interact(): void;
   setInput(action: 'forward' | 'backward' | 'left' | 'right' | 'sprint', pressed: boolean): void;
+  setControllerInput(input: ControllerInput): void;
   setShelter(day: number, companions: CharacterId[]): void; setOutcome(won: boolean): void;
   markSupplies(): void; setMuted(muted: boolean): void; destroy(): void;
 };

@@ -29,6 +29,28 @@ Open the URL printed by the server. No database is needed. For live conversation
 | Speaker button | Mute or enable music and speech |
 | On-screen arrows | Move on touch devices |
 
+### Xbox controller
+
+Pair your Xbox Wireless Controller with the computer over Bluetooth or connect it by USB. Open the game, then press and release a controller button to let the browser detect it. The connected indicator and Xbox prompts appear automatically. Press A to begin.
+
+| Controller input | Action |
+| --- | --- |
+| Left stick | Move at an analog speed; navigate menus |
+| Right stick | Orbit the camera; scroll open panels |
+| RT / left-stick click | Sprint |
+| A | Interact in the world; confirm the highlighted menu action |
+| B | Close dialogue/journal or resume from pause |
+| X | Talk to the selected character; start/stop dictation inside a conversation |
+| Y | Reveal supplies; open/close the sanctuary journal |
+| LB / RB | Select a rescued companion or Lyra; switch character in conversations |
+| D-pad | Navigate choices, rations, actions, and suggested replies |
+| Menu (☰) | Pause/resume; close an open dialogue |
+| View | Open the controls guide |
+
+The pause menu includes sound and credits. Suggested dialogue replies work entirely from the controller; free-form messages can use microphone dictation where available. A browser audio or microphone permission may require an initial click. The game displays an audio enable button if playback is blocked.
+
+Stick dead zones prevent drift; action buttons activate once per press. Disconnecting pauses play. Reconnect, release held controls, and press Menu or select Continue to resume. Supported devices must expose the browser's standard Gamepad mapping. Keyboard, mouse, and touch controls remain available. Implementation follows the [standard Gamepad layout](https://w3c.github.io/gamepad/#remapping) and [browser Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API/Using_the_Gamepad_API).
+
 Gather food, water, herbs and timber during the 60-second supply run. Aim for five food, five water and six timber; find Mira and Theron, then enter the glowing sanctuary before the ash arrives. Conversations pause the supply run.
 
 At camp, make one story decision each day before resting. The whole party shares **one food and one water per night**, regardless of its size. Missing food costs 14 health and 7 hope; missing water costs 22 health and 10 hope. Two timber build one beacon stage, and one herb restores 20 health. Building and healing can be repeated while resources and their caps allow. Mira improves treatment and gathering choices; Theron improves salvage and construction choices.
@@ -57,8 +79,10 @@ npm run lint
 npm run build
 ```
 
-The current 13 tests, type checking, lint and production build passed. HTTP checks returned 200 for the page and bundled assets. Tests cover survival boundaries, immutable state, resources, request validation, provider contracts and fallbacks; they use mocked provider responses and do not spend credits. A separate live `/api/converse` request returned `source: "gemini"` and `action: "mark_supplies"`. The bundled artwork, music and introduction were generated through real provider calls on September 26, 2026. Browser visual testing was unavailable, so these checks are not a claim of completed browser playtesting.
+Automated tests, type checking, lint and production build passed. HTTP checks returned 200 for the page and bundled assets. Tests cover survival boundaries, immutable state, resources, request validation, provider contracts and fallbacks; they use mocked provider responses and do not spend credits. A separate live `/api/converse` request returned `source: "gemini"` and `action: "mark_supplies"`. The bundled artwork, music and introduction were generated through real provider calls on September 26, 2026. Browser visual testing was unavailable, so these checks are not a claim of completed browser playtesting.
 
 `app/page.tsx` contains the interface, `app/oracle/` contains the world, characters, engine and survival rules, and `app/api/` contains server integrations. The application uses React, TypeScript, Three.js and vinext. Sites hosting configuration remains in `.openai/hosting.json`; publishing is managed through Sites.
 
 To generate missing bundled assets, run `node scripts/generate-oracle-assets.mjs all`. It preserves existing files and spends provider credits only for missing selected assets. See [asset provenance and generation options](docs/ASSETS.md). Older ECHO SHIFT files remain for compatibility and are not features of the current game.
+
+Controller validation uses simulated standard Gamepad snapshots for stick ranges, button edges, repeat timing, focus/visibility changes, and disconnect/reconnect behavior. A physical Xbox controller has not been tested in this environment.

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CharacterId, GatherResult, Nearby, OracleCallbacks, OracleEngine, Resource, WorldPhase } from './types';
+import type { CharacterId, ControllerInput, GatherResult, Nearby, OracleCallbacks, OracleEngine, Resource, WorldPhase } from './types';
 import { createWorld } from './world';
 import { createCharacter } from './characters';
 
@@ -74,6 +74,7 @@ export function createOracleGame(canvas: HTMLCanvasElement, callbacks: OracleCal
   let nearest: Nearby | null = null, stamina = 1, markedUntil = 0, elapsed = 0, lastFrame = performance.now(), updateElapsed = 0, day = 0, audioMuted = true;
   let yaw = .37, pitch = .62, distance = 23, drag = false, dragPointer = -1, dragX = 0, dragY = 0, walking = 0;
   const movement = { forward: false, backward: false, left: false, right: false, sprint: false };
+  let controller: ControllerInput = { x: 0, y: 0, lookX: 0, lookY: 0, sprint: false };
   const followTarget = hero.root.position.clone().add(new THREE.Vector3(0, 1.3, -1.9));
   const cameraPosition = new THREE.Vector3();
   let audio: AudioContext | null = null;
@@ -81,7 +82,7 @@ export function createOracleGame(canvas: HTMLCanvasElement, callbacks: OracleCal
     if (audioMuted || destroyed) return;
     try { audio ??= new AudioContext(); if (audio.state === 'suspended') void audio.resume(); const osc = audio.createOscillator(), gain = audio.createGain(); osc.connect(gain); gain.connect(audio.destination); const t = audio.currentTime; osc.type = kind === 'step' ? 'triangle' : 'sine'; const base = kind === 'pickup' ? 560 : kind === 'rescue' ? 380 : kind === 'start' ? 180 : 85; osc.frequency.setValueAtTime(base, t); osc.frequency.exponentialRampToValueAtTime(kind === 'step' ? 45 : base * 1.5, t + .16); gain.gain.setValueAtTime(kind === 'step' ? .026 : .085, t); gain.gain.exponentialRampToValueAtTime(.001, t + .25); osc.start(t); osc.stop(t + .27); } catch { /* Audio is an optional enhancement. */ }
   };
-  const clearInput = () => { for (const key of Object.keys(movement) as (keyof typeof movement)[]) movement[key] = false; drag = false; dragPointer = -1; };
+  const clearInput = () => { for (const key of Object.keys(movement) as (keyof typeof movement)[]) movement[key] = false; controller = { x: 0, y: 0, lookX: 0, lookY: 0, sprint: false }; drag = false; dragPointer = -1; };
   const emit = () => callbacks.onUpdate({ phase, timeLeft, inventory: { ...inventory }, companions: [...companions], nearest, player: { x: hero.root.position.x, z: hero.root.position.z }, stamina: stamina * 100, paused });
   const showEvent = (type: string, message: string) => callbacks.onEvent({ type, message });
   const updateNearest = () => {
@@ -146,13 +147,14 @@ export function createOracleGame(canvas: HTMLCanvasElement, callbacks: OracleCal
     const realDt = Math.max(0, (now - lastFrame) / 1000); const dt = Math.min(realDt, .05); lastFrame = now; elapsed += paused ? 0 : dt; updateElapsed += dt;
     if (!paused) {
       if (phase === 'scavenge' || phase === 'shelter') {
-        let horizontal = Number(movement.right) - Number(movement.left), vertical = Number(movement.forward) - Number(movement.backward); const length = Math.hypot(horizontal, vertical); const moving = length > 0;
-        if (moving) { horizontal /= length; vertical /= length; }
-        const sprinting = moving && movement.sprint && stamina > .04 && phase === 'scavenge'; stamina = clamp(stamina + dt * (sprinting ? -.2 : .14), 0, 1);
+        yaw -= controller.lookX * dt * 1.8; pitch = clamp(pitch + controller.lookY * dt * 1.1, .28, .95);
+        let horizontal = Number(movement.right) - Number(movement.left) + controller.x, vertical = Number(movement.forward) - Number(movement.backward) + controller.y; const length = Math.hypot(horizontal, vertical); const moving = length > 0;
+        if (length > 1) { horizontal /= length; vertical /= length; }
+        const sprinting = moving && (movement.sprint || controller.sprint) && stamina > .04 && phase === 'scavenge'; stamina = clamp(stamina + dt * (sprinting ? -.2 : .14), 0, 1);
         const speed = sprinting ? 8.2 : phase === 'shelter' ? 2.8 : 5.4;
         const dx = (horizontal * Math.cos(yaw) - vertical * Math.sin(yaw)) * dt * speed, dz = (-horizontal * Math.sin(yaw) - vertical * Math.cos(yaw)) * dt * speed;
         if (moving) { const p = hero.root.position; if (canMove(p.x + dx, p.z)) p.x += dx; if (canMove(p.x, p.z + dz)) p.z += dz; const desired = Math.atan2(dx, dz); let delta = desired - hero.root.rotation.y; delta = Math.atan2(Math.sin(delta), Math.cos(delta)); hero.root.rotation.y += delta * Math.min(1, dt * 14); stepTime += dt; if (stepTime > (sprinting ? .24 : .34)) { sound('step'); stepTime = 0; } }
-        walking = THREE.MathUtils.damp(walking, moving ? 1 : 0, 10, dt); hero.root.position.y = THREE.MathUtils.damp(hero.root.position.y, world.groundHeight(hero.root.position.x, hero.root.position.z), 14, dt); hero.animate(elapsed, walking, sprinting);
+        walking = THREE.MathUtils.damp(walking, Math.min(1, length), 10, dt); hero.root.position.y = THREE.MathUtils.damp(hero.root.position.y, world.groundHeight(hero.root.position.x, hero.root.position.z), 14, dt); hero.animate(elapsed, walking, sprinting);
         if (phase === 'scavenge') {
           timeLeft = Math.max(0, timeLeft - realDt); const rounded = Math.ceil(timeLeft); if (rounded <= 15 && rounded < lastUrgency) { if (rounded === 15) showEvent('warning', 'The mountain is breaking. Return to the sanctuary!'); if (rounded === 5) showEvent('warning', 'Get inside the sanctuary. Now.'); } lastUrgency = rounded;
           updateNearest(); if (timeLeft <= 0) finishGather();
@@ -181,6 +183,12 @@ export function createOracleGame(canvas: HTMLCanvasElement, callbacks: OracleCal
 
   return { start, pause, resume, interact, setShelter, setOutcome,
     setInput: (action, pressed) => { if (!paused || !pressed) movement[action] = pressed; },
+    setControllerInput: input => {
+      const axis = (value: number) => Number.isFinite(value) ? clamp(value, -1, 1) : 0;
+      controller = !destroyed && !paused && (phase === 'scavenge' || phase === 'shelter')
+        ? { x: axis(input.x), y: axis(input.y), lookX: axis(input.lookX), lookY: axis(input.lookY), sprint: Boolean(input.sprint) }
+        : { x: 0, y: 0, lookX: 0, lookY: 0, sprint: false };
+    },
     markSupplies: () => { markedUntil = elapsed + 10; showEvent('oracle', 'The oracle reveals nearby supplies for ten seconds.'); },
     setMuted: muted => { audioMuted = muted; if (muted && audio?.state === 'running') void audio.suspend(); else if (!muted && audio?.state === 'suspended') void audio.resume(); },
     destroy: () => {
