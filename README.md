@@ -6,14 +6,16 @@ Play as Lyra and build Troy in **two minutes**: gather supplies, complete missio
 
 A 3D browser game built for the **{Tech: Europe} AI Gaming Hack in Paris**, combining city building, survival combat, and companions you can talk to.
 
-🎮 [Play TROY 120](https://troy-120.vercel.app) · [Run locally](#-running-the-project) · [Full gameplay guide](docs/GAMEPLAY.md)
+🎮 [Play TROY 120](https://troy-120.vercel.app) · [Gameplay screenshots](#-quick-demo) · [Run locally](#-running-the-project) · [Full gameplay guide](docs/GAMEPLAY.md)
 
 Open the game in your browser and start playing—no account required. Xbox controllers and keyboard controls are supported.
 
 <p align="center">
-  <img src="public/troy/cover.jpg" alt="Troy cover artwork showing an ancient coastal city" width="900" />
+  <a href="docs/screenshots/01-title-screen.png">
+    <img src="docs/screenshots/01-title-screen.png" alt="TROY 120 title screen with Play Troy and the keyboard and Xbox control guides" width="900" />
+  </a>
   <br />
-  <em>Generated cover artwork.</em>
+  <em>The opening screen: choose your control guide and start building Troy.</em>
 </p>
 
 ## 🎮 How to Play
@@ -90,21 +92,117 @@ Companion dialogue connects to a limited set of game actions: fight, build, or f
 
 ## 🎬 Quick Demo
 
+Explore the game through these gameplay screenshots. Click any image to view it at full size.
+
 ### 1. Start your expedition
 
-Choose your control guide and start a run. Listen to Lyra’s short briefing while exploring the city.
+Review the mission and rules, then start a run. Lyra’s short briefing introduces your objective as you explore the empty plots and nearby supplies.
+
+<p align="center">
+  <a href="docs/screenshots/02-mission-and-rules.png">
+    <img src="docs/screenshots/02-mission-and-rules.png" alt="Mission and rules panel explaining construction, survival, the Warlord deadline, and companion orders" width="900" />
+  </a>
+  <br />
+  <em>The mission and rules explain how to build, survive, and call for help.</em>
+</p>
+
+<p align="center">
+  <a href="docs/screenshots/03-gameplay-start.png">
+    <img src="docs/screenshots/03-gameplay-start.png" alt="Lyra and her companions at the start of a run, with empty building plots, resources, the countdown, and minimap" width="900" />
+  </a>
+  <br />
+  <em>Your city starts with empty plots, scattered supplies, and two minutes on the clock.</em>
+</p>
 
 ### 2. Build your first house
 
 Walk to an empty plot and press **A / E**. Choose a Trojan house. Completing the first building contract rewards more supplies for your next construction.
 
+<p align="center">
+  <a href="docs/screenshots/04-build-menu.png">
+    <img src="docs/screenshots/04-build-menu.png" alt="Paused building menu with Trojan house, timber yard, cannon tower, and Temple of Troy choices and their material costs" width="900" />
+  </a>
+  <br />
+  <em>Compare building costs and effects while the clock is paused.</em>
+</p>
+
+<p align="center">
+  <a href="docs/screenshots/05-house-built.png">
+    <img src="docs/screenshots/05-house-built.png" alt="A completed Trojan house standing on a plot beside Lyra and her companions" width="900" />
+  </a>
+  <br />
+  <em>The first house turns an empty plot into the beginning of your city.</em>
+</p>
+
 ### 3. Call for help
 
-Press **Y / T** and ask a companion to fight or build. Resume the game to see the order take effect. Add a cannon tower and watch its shells hit nearby raiders.
+Press **Y / T** and ask a companion to fight or build. Speak, type, or choose a suggested order, then resume the game to let your companion act.
 
-### 4. Face the Warlord
+<p align="center">
+  <a href="docs/screenshots/06-call-companion.png">
+    <img src="docs/screenshots/06-call-companion.png" alt="Theron's companion panel with suggested fight and build orders, a microphone, and a text input" width="900" />
+  </a>
+  <br />
+  <em>Call Theron for help; the city stays paused during the conversation.</em>
+</p>
 
-With **0:30 remaining**, the boss arrives. Defeat him before **0:00** and stay alive. The horse finale then destroys the city, your victory saves, and the next expedition opens with your accumulated XP and weapons.
+### 4. Defend the city
+
+Watch the minimap for approaching raiders. Attack with **X / F**, dodge with **B / C**, and use your buildings and companions to hold them back.
+
+<p align="center">
+  <a href="docs/screenshots/07-raiders-approach.png">
+    <img src="docs/screenshots/07-raiders-approach.png" alt="Two raiders pursuing Lyra through the city as enemy markers appear on the minimap" width="900" />
+  </a>
+  <br />
+  <em>Raiding parties interrupt your building plans and force you to keep moving.</em>
+</p>
+
+<p align="center">
+  <a href="docs/screenshots/08-combat-at-the-gates.png">
+    <img src="docs/screenshots/08-combat-at-the-gates.png" alt="Lyra fighting raiders near the city gates, with a red attack warning, an approaching hammer brute, and the wooden horse beyond the gate" width="900" />
+  </a>
+  <br />
+  <em>Combat near the gates: dodge attack warnings and watch for tougher enemies.</em>
+</p>
+
+### 5. Complete contracts
+
+Press **D-pad up / Tab** to review your objectives. Building, fighting, and exploring complete contracts that automatically award materials and renown.
+
+<p align="center">
+  <a href="docs/screenshots/09-contracts.png">
+    <img src="docs/screenshots/09-contracts.png" alt="City contracts panel listing building and combat objectives, completion counts, and resource rewards" width="900" />
+  </a>
+  <br />
+  <em>Contracts give your next construction or battle a concrete reward.</em>
+</p>
+
+### 6. Pause and check your controls
+
+Press **Menu / Escape** to pause. Review the Xbox or keyboard controls, resume play, or exit to the main menu and save your earned XP and collected weapons.
+
+<p align="center">
+  <a href="docs/screenshots/10-pause-menu.png">
+    <img src="docs/screenshots/10-pause-menu.png" alt="Pause menu displaying keyboard controls, Xbox tab, Resume game, and Exit to main menu" width="900" />
+  </a>
+  <br />
+  <em>The pause screen keeps controls and exit options close at hand.</em>
+</p>
+
+### 7. Learn, return, and conquer
+
+If Lyra falls, review the result and try again. Completed attempts retain earned XP and collected weapons, so your campaign can keep growing after defeat.
+
+<p align="center">
+  <a href="docs/screenshots/11-game-over.png">
+    <img src="docs/screenshots/11-game-over.png" alt="Defeat screen showing the run's score breakdown, campaign rank and XP, and options to retry or return to the main menu" width="900" />
+  </a>
+  <br />
+  <em>The defeat screen summarizes the attempt and lets you return with a new plan.</em>
+</p>
+
+To clear a city, defeat the Warlord who arrives with **0:30 remaining** before the clock reaches **0:00**, and stay alive. The horse finale then destroys the city, your victory saves, and the next expedition opens with your accumulated XP and weapons.
 
 ## 🏗️ Architecture
 
