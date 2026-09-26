@@ -1,271 +1,266 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowRight, ArrowUpRight, AudioLines, ChevronRight, Cpu, Crosshair, Diamond, Flag, Heart, Info, LoaderCircle, Mic, Pause, Play, Radio, RotateCcw, Sparkles, Volume2, VolumeX, X, Zap } from "lucide-react";
-import type { GameHandle, GameSnapshot } from "./game/engine";
-import generatedMissions from "./game/generated-missions.json";
+import Link from 'next/link';
+import Image from 'next/image';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, ChevronRight, CircleHelp, Compass, Flame, Hammer, Heart, Leaf, LoaderCircle, MessageCircle, Mic, Moon, Pause, Play, Send, Shield, Sparkles, Sun, Volume2, VolumeX, Waves, Wheat, Wind, X } from 'lucide-react';
+import type { CampState, CharacterId, OracleEngine, Resource, WorldSnapshot } from './oracle/types';
+import { canChoose, chooseCamp, createCamp, endDay, performCampAction } from './oracle/rules';
 
-type Directive = { event: "calm" | "storm" | "riches" | "turbo" | "repair"; message: string; source: "local" | "gemini" | "gemini-pack" | "devin"; reason?: string };
-type LibraryMission = { id: string; title: string; briefing: string; event: "calm" | "storm" | "riches" };
-const missions = generatedMissions.missions.filter((mission): mission is LibraryMission => ["calm", "storm", "riches"].includes(mission.event));
-const missionLabels = { calm: "CALMER WATERS", storm: "ION STORM", riches: "DOUBLE SHARDS" };
-type Services = { gemini: boolean; gradium: boolean; devin: boolean };
-type VoiceRecognition = { lang: string; interimResults: boolean; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start(): void; stop(): void; };
-const initial: GameSnapshot = { phase: "ready", score: 0, shards: 0, shield: 100, speed: 0, distance: 0, timeLeft: 90, combo: 1, event: "Open water", boost: 100 };
-const suggestions = [ { text: "More crystals", icon: Diamond }, { text: "Bring the storm", icon: Zap }, { text: "Repair my shield", icon: Heart } ];
+const initial: WorldSnapshot = { phase: 'ready', timeLeft: 60, inventory: { food: 0, water: 0, herbs: 0, wood: 0 }, companions: [], nearest: null, player: { x: 0, z: 0 }, stamina: 100, paused: false };
+const characters = {
+  lyra: { name: 'Lyra', role: 'THE COURIER', line: 'The mountain is waking. We still have time to save each other.' },
+  mira: { name: 'Mira', role: 'THE HEALER', line: 'Bring me herbs, and I will do everything I can.' },
+  theron: { name: 'Theron', role: 'THE SHIPWRIGHT', line: 'A beacon needs good timber. A rescue needs a little hope.' },
+};
+const resources = [{ id: 'food', name: 'Food', icon: Wheat }, { id: 'water', name: 'Water', icon: Waves }, { id: 'herbs', name: 'Herbs', icon: Leaf }, { id: 'wood', name: 'Timber', icon: Hammer }] as const;
+type ChatLine = { role: 'user' | 'assistant'; text: string; source?: string };
+type Recognition = { lang: string; interimResults: boolean; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start(): void; stop(): void };
 
 export default function Home() {
-  const scene = useRef<HTMLDivElement>(null);
-  const game = useRef<GameHandle | null>(null);
-  const snapshotRef = useRef(initial);
-  const mutedRef = useRef(true);
-  const servicesRef = useRef<Services>({ gemini: false, gradium: false, devin: false });
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrl = useRef<string | null>(null);
-  const voiceController = useRef<AbortController | null>(null);
-  const recognition = useRef<VoiceRecognition | null>(null);
-  const requestController = useRef<AbortController | null>(null);
-  const workshopController = useRef<AbortController | null>(null);
-  const directiveRef = useRef<Directive | null>(null);
-  const [snapshot, setSnapshot] = useState(initial);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const engine = useRef<OracleEngine | null>(null);
+  const worldRef = useRef(initial);
+  const campRef = useRef<CampState | null>(null);
+  const music = useRef<HTMLAudioElement | null>(null);
+  const voice = useRef<HTMLAudioElement | null>(null);
+  const voiceUrl = useRef<string | null>(null);
+  const mutedRef = useRef(false);
+  const speech = useRef<Recognition | null>(null);
+  const chatAbort = useRef<AbortController | null>(null);
+  const voiceAbort = useRef<AbortController | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeDialog = useRef(false);
+  const chatBottom = useRef<HTMLDivElement>(null);
+  const [world, setWorld] = useState(initial);
+  const [camp, setCamp] = useState<CampState | null>(null);
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState("");
-  const [muted, setMuted] = useState(true);
-  const [modal, setModal] = useState<"help" | "tech" | null>(null);
-  const [services, setServices] = useState<Services>({ gemini: false, gradium: false, devin: false });
-  const [serviceLoaded, setServiceLoaded] = useState(false);
-  const [prompt, setPrompt] = useState("");
+  const [error, setError] = useState('');
+  const [muted, setMuted] = useState(false);
+  const [toast, setToast] = useState('');
+  const [journal, setJournal] = useState(true);
+  const [modal, setModal] = useState<'guide' | 'credits' | null>(null);
+  const [talking, setTalking] = useState<CharacterId | null>(null);
+  const [messages, setMessages] = useState<Record<CharacterId, ChatLine[]>>({ lyra: [], mira: [], theron: [] });
+  const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
-  const [voiceAvailable, setVoiceAvailable] = useState(false);
-  const [voiceNotice, setVoiceNotice] = useState("");
-  const [director, setDirector] = useState<Directive>({ event: "calm", message: "The ocean is yours, pilot. Collect 12 energy shards and survive until extraction. I’ll be on your frequency.", source: "local" });
-  const [toast, setToast] = useState("");
-  const [best, setBest] = useState(0);
-  const bestRef = useRef(0);
-  const [workshopBrief, setWorkshopBrief] = useState("A high-speed crystal run through an electric storm");
-  const [workshop, setWorkshop] = useState<{ busy: boolean; text: string; url?: string; mission?: { title: string; briefing: string; event: Directive["event"] } }>({ busy: false, text: "" });
-  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const resumeAfterModal = useRef(false);
-  const running = snapshot.phase === "playing";
-  const started = snapshot.phase !== "ready";
-  const finished = snapshot.phase === "won" || snapshot.phase === "lost";
+  const [voiceStatus, setVoiceStatus] = useState('');
+  const [rations, setRations] = useState({ food: true, water: true });
+  const [services, setServices] = useState({ gemini: false, gradium: false, devin: false });
+  const started = world.phase !== 'ready';
+  const finished = world.phase === 'won' || world.phase === 'lost';
+  const inventory = camp?.inventory || world.inventory;
+  const companions = camp?.companions || world.companions;
 
   const announce = useCallback((message: string) => {
     setToast(message);
-    if (toastTimeout.current) clearTimeout(toastTimeout.current);
-    toastTimeout.current = setTimeout(() => setToast(""), 3200);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 3700);
+  }, []);
+
+  const changeMusic = useCallback((track: 'explore' | 'sanctuary') => {
+    music.current?.pause();
+    const next = new Audio(`/oracle/music-${track}.mp3`);
+    next.loop = true; next.volume = .27; next.muted = mutedRef.current;
+    music.current = next;
+    void next.play().catch(() => {});
   }, []);
 
   useEffect(() => {
     let disposed = false;
-    const controller = new AbortController();
-    fetch("/api/status", { signal: controller.signal }).then(r => r.json() as Promise<Services>).then(s => { if (!disposed) { servicesRef.current = s; setServices(s); setServiceLoaded(true); } }).catch(() => { if (!disposed) setServiceLoaded(true); });
-    import("./game/engine").then(({ createGame }) => {
-      if (disposed || !scene.current) return;
-      game.current = createGame(scene.current, {
-        onReady: () => {
-          setReady(true);
-          try { bestRef.current = Number(localStorage.getItem("echo-shift-best")) || 0; setBest(bestRef.current); } catch {}
-          const voiceWindow = window as unknown as { SpeechRecognition?: new () => VoiceRecognition; webkitSpeechRecognition?: new () => VoiceRecognition };
-          setVoiceAvailable(Boolean(voiceWindow.SpeechRecognition || voiceWindow.webkitSpeechRecognition));
-        },
-        onUpdate: next => {
-          if ((next.phase === "won" || next.phase === "lost") && next.score > bestRef.current) {
-            bestRef.current = next.score; setBest(next.score);
-            try { localStorage.setItem("echo-shift-best", String(next.score)); } catch {}
-          }
-          snapshotRef.current = next; setSnapshot(next);
-        },
+    const request = new AbortController();
+    void fetch('/api/status', { signal: request.signal }).then(r => r.json()).then(s => { if (!disposed) setServices(s); }).catch(() => {});
+    import('./oracle/engine').then(({ createOracleGame }) => {
+      if (disposed || !canvas.current) return;
+      engine.current = createOracleGame(canvas.current, {
+        onReady: () => setReady(true),
+        onUpdate: next => { worldRef.current = next; setWorld(next); },
         onEvent: event => announce(event.message),
+        onGatherEnd: result => {
+          if (!result.escaped) { engine.current?.setOutcome(false); return; }
+          const next = createCamp(result); campRef.current = next; setCamp(next);
+          setJournal(true); setRations({ food: true, water: true });
+          engine.current?.setShelter(next.day, next.companions); changeMusic('sanctuary');
+          announce('You reached the sanctuary. Keep the flame alive for five days.');
+        },
       });
-      game.current.setMuted(mutedRef.current);
-    }).catch(() => { if (!disposed) setError("Your browser couldn’t start the 3D world. Enable hardware acceleration or try a recent Chrome, Edge, Firefox, or Safari browser."); });
+      engine.current.setMuted(mutedRef.current);
+    }).catch(() => { if (!disposed) setError('The 3D world could not start. Please enable hardware acceleration and reload in a recent desktop browser.'); });
     return () => {
-      disposed = true; controller.abort(); game.current?.destroy(); game.current = null;
-      recognition.current?.stop(); requestController.current?.abort(); workshopController.current?.abort(); voiceController.current?.abort();
-      audioRef.current?.pause(); if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
-      if (toastTimeout.current) clearTimeout(toastTimeout.current);
+      disposed = true; request.abort(); engine.current?.destroy(); engine.current = null;
+      music.current?.pause(); voice.current?.pause(); speech.current?.stop();
+      chatAbort.current?.abort(); voiceAbort.current?.abort();
+      if (voiceUrl.current) URL.revokeObjectURL(voiceUrl.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
       window.speechSynthesis?.cancel();
     };
-  }, [announce]);
+  }, [announce, changeMusic]);
 
-  const closeModal = useCallback(() => { setModal(null); if (resumeAfterModal.current) game.current?.resume(); resumeAfterModal.current = false; }, []);
+  useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, busy]);
   useEffect(() => {
-    if (!modal) return;
-    const oldFocus = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeModal(); }
-      if (event.key === "Tab") {
-        const items = dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled),a[href],input:not(:disabled),textarea");
-        if (!items?.length) return;
+    if (!talking && !modal) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = document.querySelector<HTMLElement>('[role=dialog]');
+    const focusables = () => dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),a[href],summary') || [];
+    const first = focusables()[0]; first?.focus();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Tab') {
+        const items = focusables(); if (!items.length) return;
         const first = items[0], last = items[items.length - 1];
-        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
       }
+      if (event.key !== 'Escape') return;
+      event.preventDefault(); event.stopImmediatePropagation(); setTalking(null); setModal(null);
+      speech.current?.stop(); setListening(false); chatAbort.current?.abort(); setBusy(false);
+      voiceAbort.current?.abort(); voice.current?.pause(); window.speechSynthesis?.cancel();
+      if (music.current) music.current.volume = .27;
+      if (resumeDialog.current) engine.current?.resume(); resumeDialog.current = false;
     }
-    window.addEventListener("keydown", handleKey, true);
-    return () => { window.removeEventListener("keydown", handleKey, true); oldFocus?.focus(); };
-  }, [modal, closeModal]);
+    window.addEventListener('keydown', closeOnEscape, true);
+    return () => { window.removeEventListener('keydown', closeOnEscape, true); previousFocus?.focus(); };
+  }, [talking, modal]);
 
-  function openModal(value: "help" | "tech") { resumeAfterModal.current = snapshotRef.current.phase === "playing"; game.current?.pause(); setModal(value); }
-  function startRun() {
-    voiceController.current?.abort(); audioRef.current?.pause(); window.speechSynthesis?.cancel();
-    requestController.current?.abort(); setBusy(false); setToast("");
-    game.current?.restart();
-    if (directiveRef.current) game.current?.applyDirective(directiveRef.current);
-    announce("Signal acquired. Collect 12 shards. Survive 90 seconds.");
+  function stopVoice() {
+    voiceAbort.current?.abort(); voice.current?.pause(); window.speechSynthesis?.cancel();
+    if (music.current) music.current.volume = .27;
   }
-  function flyMission(mission: LibraryMission) {
-    const directive: Directive = { event: mission.event, message: mission.briefing, source: "gemini-pack" };
-    directiveRef.current = directive;
-    setDirector(directive);
-    resumeAfterModal.current = false;
-    startRun();
-    closeModal();
-    void speakMission(mission);
+  function start() {
+    stopVoice(); chatAbort.current?.abort(); setBusy(false); setTalking(null); setModal(null);
+    setCamp(null); campRef.current = null; setMessages({ lyra: [], mira: [], theron: [] });
+    setToast(''); setJournal(true); engine.current?.start(); changeMusic('explore');
+    if (!mutedRef.current) {
+      const intro = new Audio('/oracle/intro.wav'); voice.current = intro;
+      if (music.current) music.current.volume = .11;
+      intro.onended = () => { if (music.current) music.current.volume = .27; };
+      void intro.play().catch(() => { if (music.current) music.current.volume = .27; });
+    }
   }
-  function toggleMute() {
-    const next = !mutedRef.current; mutedRef.current = next; setMuted(next); game.current?.setMuted(next);
-    if (next) { voiceController.current?.abort(); audioRef.current?.pause(); window.speechSynthesis?.cancel(); }
+  function toggleSound() {
+    const next = !mutedRef.current; mutedRef.current = next; setMuted(next); engine.current?.setMuted(next);
+    if (music.current) { music.current.muted = next; if (!next) void music.current.play().catch(() => {}); }
+    if (next) stopVoice();
+  }
+  function openDialog(kind: 'guide' | 'credits' | CharacterId) {
+    resumeDialog.current = ['scavenge', 'shelter'].includes(worldRef.current.phase) && !worldRef.current.paused;
+    engine.current?.pause();
+    if (kind === 'guide' || kind === 'credits') setModal(kind); else { setTalking(kind); setPrompt(''); setVoiceStatus(''); }
+  }
+  function closeDialog() {
+    setTalking(null); setModal(null); speech.current?.stop(); setListening(false);
+    chatAbort.current?.abort(); setBusy(false); stopVoice();
+    if (resumeDialog.current) engine.current?.resume(); resumeDialog.current = false;
+  }
+  function updateCamp(next: CampState) {
+    campRef.current = next; setCamp(next);
+    if (next.outcome !== 'playing') { engine.current?.setOutcome(next.outcome === 'won'); setJournal(false); }
+    else if (next.day !== camp?.day) engine.current?.setShelter(next.day, next.companions);
   }
   async function speak(text: string) {
     if (mutedRef.current) return;
-    voiceController.current?.abort(); const controller = new AbortController(); voiceController.current = controller;
-    audioRef.current?.pause(); window.speechSynthesis?.cancel();
-    if (servicesRef.current.gradium) {
-      try {
-        const response = await fetch("/api/voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(18000)]) });
-        if (!response.ok) throw new Error("voice");
-        const blob = await response.blob(); if (mutedRef.current || controller.signal.aborted) return;
-        if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
-        audioUrl.current = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl.current); audioRef.current = audio; await audio.play(); setVoiceNotice("Gradium voice"); return;
-      } catch { if (controller.signal.aborted) return; setVoiceNotice("Gradium unavailable · browser voice"); }
-    } else setVoiceNotice("Browser voice · Gradium not connected");
-    if ("speechSynthesis" in window && !mutedRef.current) { const utterance = new SpeechSynthesisUtterance(text); utterance.rate = 1.03; utterance.pitch = .9; window.speechSynthesis.speak(utterance); }
-    else setVoiceNotice("Audio unavailable · read the director message");
-  }
-  async function speakMission(mission: LibraryMission) {
-    if (mutedRef.current) return;
-    voiceController.current?.abort();
-    const controller = new AbortController();
-    voiceController.current = controller;
-    audioRef.current?.pause();
-    window.speechSynthesis?.cancel();
-    const briefingAudio = new Audio(`/generated/voices/${mission.id}.wav`);
-    audioRef.current = briefingAudio;
+    stopVoice(); const controller = new AbortController(); voiceAbort.current = controller;
+    if (music.current) music.current.volume = .09;
     try {
-      await briefingAudio.play();
-      if (controller.signal.aborted || mutedRef.current) { briefingAudio.pause(); return; }
-      setVoiceNotice("Gradium mission briefing");
+      const response = await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]) });
+      if (!response.ok) throw new Error('voice');
+      const blob = await response.blob(); if (controller.signal.aborted || mutedRef.current) return;
+      if (voiceUrl.current) URL.revokeObjectURL(voiceUrl.current);
+      voiceUrl.current = URL.createObjectURL(blob); const next = new Audio(voiceUrl.current); voice.current = next;
+      next.onended = () => { if (music.current) music.current.volume = .27; };
+      await next.play(); setVoiceStatus('Gradium voice');
     } catch {
-      if (!controller.signal.aborted && !mutedRef.current) void speak(mission.briefing);
+      if (controller.signal.aborted || mutedRef.current) return;
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text); utterance.rate = .93;
+        utterance.onend = () => { if (music.current) music.current.volume = .27; };
+        window.speechSynthesis.speak(utterance); setVoiceStatus('Browser voice · Gradium unavailable');
+      } else { setVoiceStatus('Read the reply below'); if (music.current) music.current.volume = .27; }
     }
   }
-  async function askDirector(message: string) {
-    if (!message.trim() || busy) return;
-    setBusy(true); setPrompt("");
-    requestController.current?.abort(); const controller = new AbortController(); requestController.current = controller;
+  async function converse(message: string) {
+    const character = talking;
+    if (!character || !message.trim() || busy) return;
+    message = message.trim().slice(0, 500);
+    const history = messages[character].slice(-8); setPrompt(''); setBusy(true);
+    setMessages(previous => ({ ...previous, [character]: [...previous[character], { role: 'user', text: message }] }));
+    const controller = new AbortController(); chatAbort.current = controller;
+    const state = campRef.current; const current = worldRef.current;
     try {
-      const state = snapshotRef.current;
-      const response = await fetch("/api/director", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message, context: { shards: state.shards, shield: state.shield, timeLeft: state.timeLeft, score: state.score, event: directiveRef.current?.event ?? "calm" } }), signal: controller.signal });
-      if (!response.ok) throw new Error("director");
-      const directive: Directive = await response.json(); if (controller.signal.aborted) return;
-      setDirector(directive); directiveRef.current = directive; game.current?.applyDirective(directive);
-      announce(snapshotRef.current.phase === "ready" ? "Directive armed for your next run" : "World shifted · " + directive.event);
-      void speak(directive.message);
-    } catch { if (!controller.signal.aborted) announce("Radio interference. Try your request again."); }
+      const response = await fetch('/api/converse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ character, message, history, context: { phase: current.phase, day: state?.day || 0, inventory: state?.inventory || current.inventory, companions: state?.companions || current.companions, health: state?.health ?? 100, morale: state?.morale ?? 70, signal: state?.signal || 0 } }), signal: controller.signal });
+      if (!response.ok) throw new Error('connection');
+      const result = await response.json() as { text: string; source: string; action: string };
+      if (controller.signal.aborted) return;
+      setMessages(previous => ({ ...previous, [character]: [...previous[character], { role: 'assistant', text: result.text, source: result.source }] }));
+      if (result.action === 'mark_supplies') { engine.current?.markSupplies(); announce('Lyra has marked nearby supplies.'); }
+      void speak(result.text);
+    } catch { if (!controller.signal.aborted) announce('The conversation was interrupted. Please try again.'); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }
-  function submit(event: FormEvent) { event.preventDefault(); void askDirector(prompt); }
   function listen() {
-    if (listening) { recognition.current?.stop(); return; }
-    const voiceWindow = window as unknown as { SpeechRecognition?: new () => VoiceRecognition; webkitSpeechRecognition?: new () => VoiceRecognition };
-    const Recognition = voiceWindow.SpeechRecognition || voiceWindow.webkitSpeechRecognition;
-    if (!Recognition) { announce("Voice input isn’t supported here. Type your request instead."); return; }
-    const recognizer = new Recognition(); recognition.current = recognizer; recognizer.lang = "en-US"; recognizer.interimResults = false;
-    recognizer.onresult = event => { const text = event.results[0]?.[0]?.transcript; if (text) { setPrompt(text); setVoiceNotice("Voice request ready · press send"); } };
-    recognizer.onerror = () => { setListening(false); announce("Microphone unavailable. You can type your request."); };
-    recognizer.onend = () => setListening(false);
-    try { recognizer.start(); setListening(true); } catch { setListening(false); announce("Microphone unavailable. You can type your request."); }
+    if (listening) { speech.current?.stop(); return; }
+    const speechWindow = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+    const Speech = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Speech) { announce('This browser does not support dictation. You can type to every character.'); return; }
+    stopVoice(); const recognition = new Speech(); speech.current = recognition;
+    recognition.lang = 'en-US'; recognition.interimResults = false;
+    recognition.onresult = e => { const text = e.results[0]?.[0]?.transcript; if (text) { setPrompt(text.slice(0, 500)); setVoiceStatus('Your words are ready. Press send.'); } };
+    recognition.onerror = () => { setListening(false); announce('Microphone unavailable. Type your message below.'); };
+    recognition.onend = () => setListening(false);
+    try { recognition.start(); setListening(true); } catch { setListening(false); announce('Microphone unavailable.'); }
   }
-  async function createMission() {
-    if (workshop.busy) return;
-    workshopController.current?.abort(); const controller = new AbortController(); workshopController.current = controller;
-    setWorkshop({ busy: true, text: "Devin is designing your mission…" });
-    try {
-      const response = await fetch("/api/workshop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief: workshopBrief }), signal: controller.signal });
-      const data = await response.json() as { error?: string; sessionId: string; url?: string }; if (!response.ok) throw new Error(data.error || "Could not start the workshop.");
-      setWorkshop({ busy: true, text: "Mission in progress. This can take a few minutes.", url: data.url });
-      for (let attempt = 0; attempt < 60; attempt++) {
-        await new Promise<void>((resolve, reject) => { const cancel = () => { clearTimeout(timeout); reject(new DOMException("Aborted", "AbortError")); }; const timeout = setTimeout(() => { controller.signal.removeEventListener("abort", cancel); resolve(); }, 5000); controller.signal.addEventListener("abort", cancel, { once: true }); });
-        const progress = await fetch(`/api/workshop?sessionId=${encodeURIComponent(data.sessionId)}`, { signal: controller.signal });
-        const result = await progress.json() as { error?: string; status: string; url?: string; mission?: { title: string; briefing: string; event: Directive["event"] } }; if (!progress.ok) throw new Error(result.error || "Mission status unavailable.");
-        if (result.mission) { setWorkshop({ busy: false, text: "Your mission is ready to fly.", url: result.url || data.url, mission: result.mission }); return; }
-        if (["failed", "error", "stopped", "expired", "finished", "blocked"].includes(result.status)) { setWorkshop({ busy: false, text: "Devin needs attention. Open the session to review its progress.", url: data.url }); return; }
-      }
-      setWorkshop({ busy: false, text: "Still working. Follow your mission in Devin.", url: data.url });
-    } catch (cause) { if (!controller.signal.aborted) setWorkshop({ busy: false, text: cause instanceof Error ? cause.message : "Workshop unavailable." }); }
-  }
-  const seconds = Math.ceil(Math.max(0, snapshot.timeLeft));
-  const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  function submit(event: FormEvent) { event.preventDefault(); void converse(prompt); }
 
-  return <main className={`game-shell ${started ? "in-game" : "in-lobby"}`}>
-    <div className="world" ref={scene} aria-label="3D hovercraft game world" />
-    <div className="world-vignette" />
+  return <main className={`oracle-app phase-${world.phase}`}>
+    <canvas ref={canvas} className="world-canvas" aria-label="Playable 3D ancient Greek island. Use WASD to move and E to interact." />
+    {world.phase === 'ready' && <div className="title-art" />}
+    <div className="scene-shade" />
     <header className="topbar">
-      <Link className="wordmark" href="/" aria-label="Echo Shift home"><span className="brand-symbol">{"//"}</span> ECHO<span className="wordmark-light">SHIFT</span><span className="beta">01</span></Link>
-      <nav aria-label="Main navigation"><button className="nav-active" onClick={closeModal}>The experience<span /></button><button onClick={() => openModal("help")}>Missions &amp; controls</button><button onClick={() => openModal("tech")}>Behind the signal <ArrowUpRight size={13} /></button></nav>
-      <div className="header-actions"><span className="edition">PARIS ’26 <span>EXPERIMENTAL BUILD</span></span><button className="icon-button sound-button" onClick={toggleMute} aria-label={muted ? "Enable sound" : "Mute sound"} title={muted ? "Enable sound" : "Mute sound"}>{muted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button></div>
+      <Link className="brand" href="/" aria-label="The Last Oracle home"><Sun size={25} strokeWidth={1.2} /><span>THE LAST <b>ORACLE</b></span></Link>
+      <div className="chapter-label"><span className="gold-dot" />{world.phase === 'ready' ? 'AN AEGEAN SURVIVAL STORY' : world.phase === 'scavenge' ? 'CHAPTER I  /  THE LAST MINUTE' : 'CHAPTER II  /  KEEPERS OF THE FLAME'}</div>
+      <div className="top-actions"><button className="icon-button" onClick={() => openDialog('guide')} title="How to play" aria-label="How to play"><CircleHelp size={19} /></button><button className="icon-button" onClick={toggleSound} title={muted ? 'Enable sound' : 'Mute sound'} aria-label={muted ? 'Enable sound' : 'Mute sound'}>{muted ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>{started && !finished && <button className="icon-button" onClick={() => world.paused ? engine.current?.resume() : engine.current?.pause()} aria-label={world.paused ? 'Resume' : 'Pause'}>{world.paused ? <Play size={18} /> : <Pause size={18} />}</button>}</div>
     </header>
-    {started && <section className="flight-hud" aria-label="Flight status">
-      <div className="hud-cell"><span className="micro">ENERGY SHARDS</span><div className="shard-number"><Diamond size={19} />{String(snapshot.shards).padStart(2, "0")}<span>/ 12</span></div><div className="tiny-track"><i style={{ width: `${Math.min(100, snapshot.shards / 12 * 100)}%` }} /></div></div>
-      <div className="hud-cell timer"><span className="micro">EXTRACTION IN</span><strong className={snapshot.timeLeft < 20 ? "danger-text" : ""}>{time}</strong></div>
-      <div className="hud-cell score"><span className="micro">SCORE</span><strong>{snapshot.score.toLocaleString().padStart(5, "0")}</strong></div>
-      <button className="icon-button pause-button" disabled={finished} onClick={() => running ? game.current?.pause() : game.current?.resume()} aria-label={running ? "Pause game" : "Resume game"}>{running ? <Pause size={18} /> : <Play size={18} />}</button>
-    </section>}
-    {!started && <section className="hero">
-      <div className="eyebrow"><span className="live-dot" /> AN AI-ALTERED REALITY <span className="eyebrow-line" /></div>
-      <h1>ECHO<br /><span>SHIFT</span><span className="title-asterisk">✳</span></h1>
-      <p className="hero-subtitle">The world listens.<br />Make your move.</p>
-      <p className="hero-description">Skim an infinite ocean. Chase the signal.<br />Tell your AI director what happens next.</p>
-      <button className="launch-button" disabled={!ready || Boolean(error)} onClick={startRun}>{!ready && !error ? <LoaderCircle className="spin" size={19} /> : <Play size={18} fill="currentColor" />}<span>{error ? "3D unavailable" : ready ? "Enter the simulation" : "Tuning your signal…"}</span><ArrowUpRight size={21} /></button>
-      <div className="launch-meta"><span>90 SECONDS</span><i /> <span>ONE PILOT</span><i /><span>INFINITE POSSIBILITIES</span></div>
-      {error && <p className="error-message" role="alert">{error}</p>}
-    </section>}
-    {!started && <aside className="world-caption"><div className="coordinate"><Crosshair size={15} /> 48°51′ N / 02°20′ E</div><span className="caption-rule" /><span className="micro">YOUR NEXT DESTINATION</span><h2>The Drift</h2><p>Somewhere beyond the ordinary.</p><span className="sector-tag">SECTOR 001 <span>↗</span></span></aside>}
-    {started && <div className="pilot-telemetry"><div className="telemetry-heading"><span className="live-dot" /><span>PILOT SYSTEMS</span><span>{snapshot.combo > 1 ? `×${snapshot.combo} COMBO` : "ECHO–01"}</span></div><div className="meter"><span><Heart size={12} /> SHIELD</span><div><i style={{ width: `${snapshot.shield}%`, background: snapshot.shield < 30 ? "#ff775f" : undefined }} /></div><b>{Math.round(snapshot.shield)}%</b></div><div className="meter"><span><Zap size={12} /> BOOST</span><div><i style={{ width: `${snapshot.boost}%` }} /></div><b>{Math.round(snapshot.boost)}%</b></div><div className="speed"><strong>{Math.round(snapshot.speed)}</strong><span>KM/H</span><em>{snapshot.event}</em></div></div>}
-    <section className="director-dock" aria-label="AI mission director">
-      <div className="director-heading"><div className={`echo-orb ${busy || listening ? "thinking" : ""}`}><AudioLines size={20} /></div><div><span className="micro">YOUR CO-PILOT</span><h2>ECHO <span>/ MISSION DIRECTOR</span></h2></div><span className="source-badge"><i className={director.source !== "local" ? "connected" : ""} />{busy ? "THINKING" : director.source === "gemini" ? "GEMINI LIVE" : director.source === "gemini-pack" ? "GEMINI MISSION" : director.source === "devin" ? "DEVIN MISSION" : "LOCAL DEMO"}</span></div>
-      <p className="director-message" aria-live="polite">“{director.message}”</p>
-      <form onSubmit={submit} className="director-form"><label className="sr-only" htmlFor="director-prompt">Tell the director how to change the world</label><input id="director-prompt" value={prompt} onChange={e => setPrompt(e.target.value)} maxLength={240} placeholder={listening ? "Listening…" : "What if the world could hear you?"} autoComplete="off" disabled={busy} /><button type="button" className={`mic-button ${listening ? "listening" : ""}`} onClick={listen} disabled={busy || !voiceAvailable} aria-label={listening ? "Stop listening" : "Dictate a request"} title={voiceAvailable ? "Dictate a request" : "Voice input unavailable in this browser"}><Mic size={17} /></button><button type="submit" className="send-button" disabled={busy || !prompt.trim()} aria-label="Send director request">{busy ? <LoaderCircle className="spin" size={16} /> : <ArrowUpRight size={18} />}</button></form>
-      <div className="prompt-suggestions">{suggestions.map(({ text, icon: Icon }) => <button key={text} disabled={busy} onClick={() => void askDirector(text)}><Icon size={11} />{text}</button>)}</div>
-      {voiceNotice && <span className="voice-notice">{voiceNotice}</span>}
-    </section>
-    <div className="touch-controls" aria-label="Touch flight controls">{(["left", "right", "boost"] as const).map(action => <button key={action} className={action === "boost" ? "touch-boost" : ""} aria-label={action === "boost" ? "Hold to boost" : `Steer ${action}`} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); game.current?.setInput(action, true); }} onPointerUp={() => game.current?.setInput(action, false)} onPointerCancel={() => game.current?.setInput(action, false)} onLostPointerCapture={() => game.current?.setInput(action, false)}>{action === "left" ? <ArrowLeft size={24} /> : action === "right" ? <ArrowRight size={24} /> : <Zap size={24} />}</button>)}</div>
-    {toast && <div className="game-toast" role="status"><Radio size={15} />{toast}</div>}
-    <footer className="bottom-bar"><div className="keyboard-hint"><kbd>A</kbd><kbd>D</kbd><span>STEER</span><kbd className="space-key">SPACE</kbd><span>BOOST</span><button onClick={() => openModal("help")} aria-label="View missions and flight controls"><Info size={14} /></button></div><div className="event-credit"><span>BUILT FOR</span> {"{Tech: Europe}"}<span>AI GAMING HACK</span></div><button className="sponsor-link" onClick={() => openModal("tech")}>MEET THE TECHNOLOGY <ArrowUpRight size={13} /></button></footer>
-    {(snapshot.phase === "paused" || finished) && !modal && <div className="overlay"><section className="result-card"><span className="eyebrow">{finished ? "FLIGHT RECORDER / 001" : "SIGNAL ON HOLD"}</span><div className={`result-icon ${snapshot.phase === "lost" ? "failed" : ""}`}>{snapshot.phase === "paused" ? <Pause size={30} /> : snapshot.phase === "won" ? <Flag size={30} /> : <Radio size={30} />}</div><h2>{snapshot.phase === "paused" ? "Take a breath." : snapshot.phase === "won" ? "Signal secured." : "Signal lost."}</h2><p>{snapshot.phase === "paused" ? "The ocean will wait. Resume when you’re ready." : snapshot.phase === "won" ? "You made it through the drift. The next run is a whole new world." : snapshot.shield <= 0 ? "Your shield ran out. Steer clear of the coral hazards and ask Echo for a repair." : "Extraction arrived before you collected 12 shards. Ask Echo for more crystals and try again."}</p>{finished && <div className="results"><div><span>SCORE</span><strong>{snapshot.score.toLocaleString()}</strong></div><div><span>SHARDS</span><strong>{snapshot.shards}<small> / 12</small></strong></div><div><span>PERSONAL BEST</span><strong>{best.toLocaleString()}</strong></div></div>}<button className="launch-button" onClick={() => snapshot.phase === "paused" ? game.current?.resume() : startRun()}>{snapshot.phase === "paused" ? <Play size={17} /> : <RotateCcw size={17} />}{snapshot.phase === "paused" ? "Back to the drift" : "One more run"}<ArrowUpRight size={19} /></button>{snapshot.phase === "paused" && <button className="text-button" onClick={startRun}>Restart this run</button>}</section></div>}
-    {modal && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closeModal(); }}><div className={`modal ${modal === "tech" ? "tech-modal" : ""}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1}><button className="icon-button modal-close" onClick={closeModal} aria-label="Close dialog"><X size={20} /></button><span className="eyebrow">ECHO SHIFT / {modal === "help" ? "FLIGHT MANUAL" : "BEHIND THE SIGNAL"}</span><h2 id="modal-title">{modal === "help" ? "Find your flow." : "Built to listen."}</h2>
-      {modal === "help" ? <><p className="modal-intro">A little instinct. A little intelligence. Ninety seconds to make it home.</p>
-        <section className="mission-library" aria-labelledby="mission-library-title">
-          <div className="mission-library-heading"><h3 id="mission-library-title">Choose your opening</h3><span><Sparkles size={11} /> GEMINI MISSIONS</span></div>
-          <p>Three flights written by Gemini. Your opening modifier lasts 15 seconds; every expedition lasts 90.</p>
-          <div className="mission-grid">{missions.map(mission => <article className="mission-card" key={mission.id}>
-            <div><span className="mission-kind">{missionLabels[mission.event]}</span><h4>{mission.title}</h4><p>{mission.briefing}</p></div>
-            <button onClick={() => flyMission(mission)} disabled={!ready || Boolean(error)} aria-label={`Fly ${mission.title}`}>Fly this mission <ArrowUpRight size={14} /></button>
-          </article>)}</div>
-        </section>
-        <div className="manual-steps"><div><span>01</span><div><h3>Chase the energy</h3><p>Collect at least 12 cyan crystals, then survive until the 90-second extraction. Every crystal adds to your score.</p></div><Diamond /></div><div><span>02</span><div><h3>Stay in one piece</h3><p>Steer with A / D or ← / →. Avoid the coral hazards. Hold Space to boost; release to recharge. Escape pauses your flight.</p></div><Zap /></div><div><span>03</span><div><h3>Change the world</h3><p>Ask Echo for a storm, more crystals, a shield repair, calmer skies, or extra speed. You can type, dictate, or tap a suggestion.</p></div><AudioLines /></div></div><div className="manual-note"><Info size={17} /><p>On a phone or tablet, use the on-screen steering and boost buttons. Enable sound in the top right to hear Echo. Best scores stay on this device.</p></div><button className="launch-button" onClick={closeModal}>Ready, pilot <ArrowUpRight size={20} /></button></> : <>
-        <p className="modal-intro">A playable experiment for the {"{Tech: Europe}"} AI Gaming Hack. Real integrations, with a local mode so you can always fly.</p>
-        <div className="integration-list"><div><Sparkles /><section><h3>Google DeepMind <span>GEMINI</span></h3><p>Turns your requests and flight telemetry into changes to the world. Gemini also created the opening missions and atmospheric sky.</p></section><span className={`integration-status ${services.gemini ? "online" : ""}`}>{serviceLoaded ? services.gemini ? "Configured" : "Local demo" : "Checking…"}</span></div><div><AudioLines /><section><h3>Gradium <span>VOICE</span></h3><p>Speaks your director’s responses. Browser speech is a labeled fallback; microphone dictation uses your browser.</p></section><span className={`integration-status ${services.gradium ? "online" : ""}`}>{services.gradium ? "Configured" : "Not connected"}</span></div><div><Cpu /><section><h3>Cognition <span>DEVIN</span></h3><p>Designs a custom mission in the optional workshop below. Each request starts a real, bounded Devin session.</p></section><span className={`integration-status ${services.devin ? "online" : ""}`}>{services.devin ? "Configured" : "Not connected"}</span></div><div><Crosshair /><section><h3>Voodoo <span>CO-HOST</span></h3><p>Short runs and one-more-try play inspired by arcade games. No Voodoo service is connected; event-specific tools are needed.</p></section><span className="integration-status">Acknowledged</span></div><div><span className="yg-mark">YG</span><section><h3>YG <span>EVENT PARTNER</span></h3><p>The event names YG without a developer resource. Its integration is pending the sponsor’s identity and API documentation.</p></section><span className="integration-status">Resources needed</span></div></div>
-        <section className="workshop"><div className="workshop-heading"><Cpu size={18} /><h3>The mission workshop</h3><span>POWERED BY DEVIN</span></div><p>Describe a flight. Devin writes a mission and chooses a world modifier for your next run.</p><label className="sr-only" htmlFor="workshop-brief">Custom mission description</label><input id="workshop-brief" value={workshopBrief} maxLength={500} onChange={e => setWorkshopBrief(e.target.value)} disabled={workshop.busy || !services.devin} /><button className="workshop-button" onClick={() => void createMission()} disabled={!services.devin || workshop.busy || !workshopBrief.trim()}>{workshop.busy ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{services.devin ? "Create mission · up to 1 ACU" : "Connect Devin to enable"}<ArrowUpRight size={16} /></button>{workshop.text && <p className="workshop-message" role="status">{workshop.text} {workshop.url && <a href={workshop.url} target="_blank" rel="noreferrer">Open Devin <ArrowUpRight size={12} /></a>}</p>}{workshop.mission && <div className="custom-mission"><h4>{workshop.mission.title}</h4><p>{workshop.mission.briefing}</p><button onClick={() => { const mission = workshop.mission!; const directive: Directive = { event: mission.event, message: mission.briefing, source: "devin" }; directiveRef.current = directive; setDirector(directive); closeModal(); startRun(); }}>Fly this mission <ChevronRight size={16} /></button></div>}</section>
-        <p className="connection-note">Sponsor services need server-side credentials. See the project’s setup guide. “Configured” means a key is present; live requests still depend on your account and credits.</p><div className="resource-links"><a href="https://github.com/google-gemini/gemini-skills" target="_blank" rel="noreferrer">Gemini skills <ArrowUpRight size={13} /></a><a href="https://github.com/google-gemini/cookbook" target="_blank" rel="noreferrer">Gemini cookbook <ArrowUpRight size={13} /></a></div>
+
+    {world.phase === 'ready' && <>
+      <section className="intro">
+        <div className="eyebrow"><span /> THE ISLAND REMEMBERS</div>
+        <h1>One minute.<br />Five days.<br /><em>A final hope.</em></h1>
+        <p>The mountain has awakened. Gather what you can, save who you can, and guide your people through the ashes.</p>
+        <button className="primary-button begin" disabled={!ready || Boolean(error)} onClick={start}>{ready ? <><span>Begin your odyssey</span><ArrowRight size={21} /></> : <><LoaderCircle className="spin" size={18} /> Awakening the island…</>}</button>
+        <div className="intro-caption"><span>3D SURVIVAL ADVENTURE</span><i /> HEADPHONES RECOMMENDED</div>
+        {error && <p className="error" role="alert">{error}</p>}
+      </section>
+      <div className="location"><Compass size={21} strokeWidth={1.2} /><div><span>ISLE OF KALLISTE</span><p>The Aegean Sea · An age of myth</p></div></div>
+      <aside className="character-preview"><Image unoptimized width={640} height={640} src="/oracle/lyra.jpg" alt="Lyra, your playable hero" /><div><span>YOUR STORY BEGINS WITH</span><strong>Lyra, the courier</strong><p>One life. An island’s fate.</p></div><button onClick={() => openDialog('lyra')} aria-label="Talk to Lyra"><MessageCircle size={20} /></button></aside>
+      <footer className="landing-footer"><span>AN ORIGINAL GAME · PARIS AI GAMING HACK</span><button onClick={() => openDialog('credits')}>The art of the oracle <ArrowUpRight size={13} /></button></footer>
+    </>}
+
+    {started && <>
+      <section className="supply-bar" aria-label="Supplies">{resources.map(({ id, name, icon: Icon }) => <div className={`resource resource-${id}`} key={id}><Icon size={19} strokeWidth={1.6} /><div><span>{name}</span><b>{inventory[id]}</b></div></div>)}<div className="supply-divider" /><div className="saved-people"><Shield size={18} /><span>{companions.length}<small> / 2 saved</small></span></div></section>
+      {world.phase === 'scavenge' && <>
+        <section className={`countdown ${world.timeLeft < 16 ? 'urgent' : ''}`}><span>BEFORE THE ASH</span><strong>{String(Math.ceil(world.timeLeft)).padStart(2, '0')}<small>s</small></strong><div className="timer-track"><i style={{ width: `${world.timeLeft / 60 * 100}%` }} /></div></section>
+        <aside className="quest-card"><span className="eyebrow">I · THE LAST MINUTE</span><h2>Leave no hope behind.</h2><p>Gather supplies and rescue Mira &amp; Theron. Return to the glowing sanctuary.</p><div className="quest-target"><Wheat size={14} /> Aim for 5 food · 5 water · 6 timber</div><button className="text-button" onClick={() => { engine.current?.markSupplies(); announce('Supply markers revealed for a few moments.'); }}><Compass size={14} /> Reveal supplies</button></aside>
+        <div className="island-map" aria-label="Island map. Sanctuary is north of the village."><span className="map-north">N</span><div className="map-land"><span className="map-temple" style={{left:'50%',top:'30%'}}><Sun size={14} /><small>SANCTUARY</small></span>{!companions.includes('mira') && <span className="map-person" style={{left:'39%',top:'44%'}} title="Mira" />}{!companions.includes('theron') && <span className="map-person" style={{left:'70%',top:'72%'}} title="Theron" />}<span className="map-hero" style={{left:`${Math.max(5,Math.min(95,(world.player.x+24)/48*100))}%`,top:`${Math.max(5,Math.min(95,(world.player.z+21)/46*100))}%`}} /></div><span className="map-caption">THE VILLAGE OF KALLISTE</span></div>
+        <div className="stamina"><span>SPRINT</span><div><i style={{ width: `${Math.max(0, Math.min(100, world.stamina))}%` }} /></div><kbd>SHIFT</kbd></div>
       </>}
-    </div></div>}
+      {camp && !finished && <>
+        <aside className="camp-stats"><div className="day-title"><Sun size={19} /><span>DAY <b>{camp.day}</b> OF 5</span><button onClick={() => setJournal(!journal)}>{journal ? 'Explore sanctuary' : 'Open journal'} <ChevronRight size={14} /></button></div><div className="vital"><Heart size={15} /><span>Health</span><div><i style={{ width: `${camp.health}%` }} /></div><b>{camp.health}</b></div><div className="vital morale"><Flame size={15} /><span>Hope</span><div><i style={{ width: `${camp.morale}%` }} /></div><b>{camp.morale}</b></div><div className="beacon"><span>RESCUE BEACON</span><div>{[1, 2, 3].map(i => <i key={i} className={camp.signal >= i ? 'lit' : ''}><Flame size={13} /></i>)}</div><b>{camp.signal}/3</b></div></aside>
+        {journal && <section className="journal-panel"><div className="journal-heading"><span>THE SANCTUARY JOURNAL</span><button className="icon-button" onClick={() => setJournal(false)} aria-label="Close journal"><X size={15} /></button></div><div className="journal-content"><span className="chapter-number">DAY {String(camp.day).padStart(2, '0')}</span><h2>{camp.event.title}</h2><p className="event-text">{camp.event.text}</p><div className="choices">{camp.event.choices.map(choice => <button key={choice.id} disabled={camp.chosen || !canChoose(camp, choice)} onClick={() => updateCamp(chooseCamp(camp, choice.id))}><span><b>{choice.label}</b><small>{choice.description}</small></span>{camp.chosen ? <Check size={16} /> : <ChevronRight size={17} />}</button>)}</div>{camp.chosen && <p className="decision-made"><Check size={13} /> Your choice is written into the island’s story.</p>}<div className="camp-actions"><button disabled={camp.inventory.wood < 2 || camp.signal >= 3} onClick={() => updateCamp(performCampAction(camp, 'repair'))}><Hammer size={16} /><span>Build beacon<small>2 timber · +1 flame</small></span></button><button disabled={camp.inventory.herbs < 1 || camp.health >= 100} onClick={() => updateCamp(performCampAction(camp, 'heal'))}><Leaf size={16} /><span>Tend wounds<small>1 herb · restore health</small></span></button></div><div className="ration-title">TONIGHT’S RATIONS <span>1 serving feeds your party</span></div><div className="rations">{(['food', 'water'] as Resource[]).map(id => <label key={id}><input type="checkbox" checked={rations[id as 'food' | 'water'] && inventory[id] > 0} disabled={inventory[id] < 1} onChange={event => setRations(previous => ({ ...previous, [id]: event.target.checked }))} />{id === 'food' ? <Wheat size={15} /> : <Waves size={15} />}<span>{id === 'food' ? 'Share food' : 'Share water'}</span><small>{inventory[id] ? '−1' : 'empty'}</small></label>)}</div><button className="primary-button rest" disabled={!camp.chosen} onClick={() => { updateCamp(endDay(camp, rations)); setRations({ food: true, water: true }); }}><Moon size={17} /><span>{camp.day === 5 ? 'Light the final signal' : 'Rest until dawn'}</span><ArrowRight size={17} /></button><p className="rest-hint">{!camp.chosen ? 'Make today’s decision before resting.' : 'Survive five days. Light all three beacon flames.'}</p>{camp.log.length > 0 && <details className="chronicle"><summary>Our story so far</summary>{camp.log.slice(-8).map((line, i) => <p key={i}>{line}</p>)}</details>}</div></section>}
+      </>}
+      {!finished && <>
+        <div className="companion-dock"><button className="hero-avatar" onClick={() => openDialog('lyra')} title="Talk to your hero, Lyra"><Image unoptimized width={640} height={640} src="/oracle/lyra.jpg" alt="" /><span>LYRA <MessageCircle size={10} /></span></button>{(['mira', 'theron'] as CharacterId[]).map(id => <button key={id} className={companions.includes(id) ? '' : 'not-saved'} disabled={!companions.includes(id)} onClick={() => openDialog(id)} title={companions.includes(id) ? `Talk to ${characters[id].name}` : `Find ${characters[id].name} in the village`}><Image unoptimized width={640} height={640} src={`/oracle/${id}.jpg`} alt="" /><span>{characters[id].name.toUpperCase()} {companions.includes(id) ? <Check size={10} /> : '· ?'}</span></button>)}</div>
+        {world.nearest && !talking && <button className="interaction" onClick={() => engine.current?.interact()}><kbd>E</kbd><span><b>{world.nearest.label}</b><small>{world.nearest.description}</small></span><ChevronRight size={18} /></button>}
+        <div className="controls-hint"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>SHIFT</kbd> Sprint</span><span>Drag to look</span><span><kbd>E</kbd> Interact</span></div>
+        <div className="touch-controls">{[{ id: 'forward', icon: ArrowUp }, { id: 'left', icon: ArrowLeft }, { id: 'backward', icon: ArrowDown }, { id: 'right', icon: ArrowRight }].map(({ id, icon: Icon }) => <button key={id} className={`move-${id}`} aria-label={`Move ${id}`} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); engine.current?.setInput(id as 'forward', true); }} onPointerUp={() => engine.current?.setInput(id as 'forward', false)} onPointerCancel={() => engine.current?.setInput(id as 'forward', false)}><Icon size={20} /></button>)}</div>
+      </>}
+    </>}
+
+    {world.paused && started && !finished && !talking && !modal && <div className="pause-overlay"><div className="pause-card"><Sun size={34} strokeWidth={1} /><span className="eyebrow">A MOMENT OF STILLNESS</span><h2>The island can wait.</h2><button className="primary-button" onClick={() => engine.current?.resume()}><Play size={17} /> Continue your story</button><button className="text-button" onClick={() => openDialog('guide')}>View controls</button></div></div>}
+    {finished && <div className="ending-overlay"><section className="ending-card"><div className="ending-symbol">{world.phase === 'won' ? <Sun size={45} strokeWidth={1} /> : <Wind size={45} strokeWidth={1} />}</div><span className="eyebrow">{world.phase === 'won' ? 'THE ISLAND WILL REMEMBER' : 'A STORY LOST TO THE ASH'}</span><h1>{world.phase === 'won' ? <>Beyond the ash,<br /><em>a new dawn.</em></> : <>Even hope<br /><em>casts a shadow.</em></>}</h1><p>{world.phase === 'won' ? `A sail appears on the horizon. Your beacon has been seen. ${companions.length === 2 ? 'Mira and Theron stand beside you. You brought everyone home.' : companions.length ? 'One companion shares your passage to a new life.' : 'You have survived, carrying the memory of those left behind.'}` : camp && camp.health <= 0 ? 'The party could not survive another night. Protect your food and water, and use herbs to heal before you rest.' : camp ? 'The rescue fleet passed beyond the mist. Keep your people alive and build all three beacon flames before the fifth night.' : 'The ash reached the village before you returned. Gather quickly, then press E at the glowing sanctuary before the final second.'}</p><div className="ending-stats"><div><b>{camp?.day || 0}/5</b><span>DAYS ENDURED</span></div><div><b>{companions.length}/2</b><span>SOULS SAVED</span></div><div><b>{camp?.signal || 0}/3</b><span>BEACON FLAMES</span></div></div><button className="primary-button" onClick={start}>Write another story <ArrowRight size={19} /></button></section></div>}
+
+    {talking && <div className="dialog-scrim" onClick={closeDialog}><aside className="conversation" role="dialog" aria-modal="true" aria-label={`Conversation with ${characters[talking].name}`} onClick={event => event.stopPropagation()}><div className="portrait-banner"><Image unoptimized width={640} height={640} src={`/oracle/${talking}.jpg`} alt={characters[talking].name} /><div /><button className="icon-button close-chat" onClick={closeDialog} aria-label="Close conversation"><X size={20} /></button><section><span>{characters[talking].role}</span><h2>{characters[talking].name}</h2><p>{talking === 'lyra' ? 'Your courage. Your voice. Your story.' : 'A life bound to yours.'}</p></section></div><div className="chat-messages"><div className="chat-line assistant"><p>{characters[talking].line}</p><small>THE CONVERSATION BEGINS</small></div>{messages[talking].map((message, i) => <div className={`chat-line ${message.role}`} key={i}><p>{message.text}</p>{message.source && <small>{message.source === 'gemini' ? 'GEMINI · IN CHARACTER' : 'LOCAL STORY GUIDE'}</small>}</div>)}{busy && <div className="chat-thinking"><i /><i /><i /><span>{characters[talking].name} considers your words…</span></div>}<div ref={chatBottom} /></div><div className="chat-bottom"><div className="suggestions">{(camp ? ['How do we survive?', 'What does the beacon need?'] : ['Where are the supplies?', 'Tell me your story.']).map(text => <button key={text} disabled={busy} onClick={() => void converse(text)}>{text}</button>)}</div><form onSubmit={submit}><button type="button" className={`mic-button ${listening ? 'listening' : ''}`} onClick={listen} aria-label={listening ? 'Stop dictation' : 'Dictate a message'}><Mic size={19} /></button><input autoFocus value={prompt} onChange={event => setPrompt(event.target.value)} maxLength={500} placeholder={`Speak to ${characters[talking].name}…`} aria-label={`Message to ${characters[talking].name}`} /><button className="send-button" disabled={busy || !prompt.trim()} aria-label="Send message">{busy ? <LoaderCircle size={18} className="spin" /> : <Send size={18} />}</button></form><p className="voice-status">{listening ? 'Listening… press the microphone to stop.' : voiceStatus || 'Type or dictate · characters reply with a voice'}</p></div></aside></div>}
+
+    {modal && <div className="dialog-scrim centered" onClick={closeDialog}><section className="info-modal" role="dialog" aria-modal="true" aria-label={modal === 'guide' ? 'How to play' : 'Game credits'} onClick={event => event.stopPropagation()}><button className="icon-button modal-close" onClick={closeDialog} aria-label="Close"><X size={21} /></button><span className="eyebrow">THE LAST ORACLE</span><h2>{modal === 'guide' ? 'A little courage goes a long way.' : 'An ancient world. A new kind of story.'}</h2>{modal === 'guide' ? <><div className="guide-step"><span>01</span><div><h3>One minute to gather.</h3><p>Move with WASD or arrow keys. Hold Shift to sprint. Drag to orbit the camera, scroll to zoom. Press E beside supplies, companions, or the sanctuary. Aim for at least 5 food, 5 water, and 6 timber. Return to the glowing temple before the ash arrives.</p></div></div><div className="guide-step"><span>02</span><div><h3>Five days to endure.</h3><p>Make one story decision each day. Share a food and water ration each night. Herbs restore health; two timber build one beacon flame. Light three flames and survive the fifth night to signal the rescue ship.</p></div></div><div className="guide-step"><span>03</span><div><h3>No one survives alone.</h3><p>Rescue Mira and Theron to earn their help. Click a portrait to talk, type, or use microphone dictation. Lyra can help you find supplies. Conversations pause the supply run. Escape pauses the game.</p></div></div><button className="primary-button" onClick={closeDialog}>I’m ready <ArrowRight size={17} /></button></> : <><p>An original, playable survival tale inspired by the urgency of scavenging games and the beauty of the ancient Mediterranean.</p><div className="credit-row"><Sparkles size={20} /><div><b>Google DeepMind</b><p>Gemini character conversations, original artwork, and Lyria music.</p></div><span className={services.gemini ? 'connected' : ''}>{services.gemini ? 'CONNECTED' : 'LOCAL GUIDE'}</span></div><div className="credit-row"><Volume2 size={20} /><div><b>Gradium</b><p>Generated narration and spoken character responses.</p></div><span className={services.gradium ? 'connected' : ''}>{services.gradium ? 'CONNECTED' : 'BROWSER VOICE'}</span></div><div className="credit-row"><Compass size={20} /><div><b>Built for the Paris AI Gaming Hack</b><p>Hosted by Tech: Europe, Voodoo &amp; Google DeepMind. Event partners: Cognition, YG &amp; Gradium.</p></div></div><p className="credit-note">This build actively uses Google and Gradium. Cognition and YG are acknowledged as event partners; their services are not connected to this game.</p><a className="text-button" href="https://github.com/google-gemini/cookbook" target="_blank" rel="noreferrer">Built with the Gemini API resources <ArrowUpRight size={14} /></a></>}</section></div>}
+    {toast && <div className="toast" role="status"><Sun size={15} />{toast}</div>}
   </main>;
 }

@@ -1,36 +1,36 @@
-# Generated assets
+# THE LAST ORACLE assets
 
-The playable world uses procedural Three.js geometry, ocean shaders, lighting, and particles. The resources below were generated through real provider calls and are bundled for local playback. Loading them does not make a new AI request.
+The 3D island, buildings, characters, ocean, lighting and effects are implemented in `app/oracle/`. The bundled resources below were produced through real Google and Gradium calls on September 26, 2026. Playback and loading do not make new generation requests.
 
-| Resource | Generator | Use |
+All current generated files are in [`public/oracle/`](../public/oracle/).
+
+| Files | Provider / model | Purpose |
 | --- | --- | --- |
-| `app/game/generated-missions.json` | Google Gemini `gemini-3.8-flash` | Still Tide, Gale Front, and Crystal Bloom: three briefings paired with supported starting modifiers. |
-| `public/generated/drift-sky.jpg` | Google Gemini `gemini-3.1-flash-image` | A 21:9 sky panorama, requested at 2K, loaded asynchronously onto the sky sphere. The procedural sky remains the fallback. |
-| `public/generated/voices/still-tide.wav` | Gradium `default` | Spoken Still Tide title and briefing. |
-| `public/generated/voices/gale-front.wav` | Gradium `default` | Spoken Gale Front title and briefing. |
-| `public/generated/voices/crystal-bloom.wav` | Gradium `default` | Spoken Crystal Bloom title and briefing. |
-| `public/og.png` | Built-in ImageGen | Social link preview artwork. |
+| `cover.jpg` | Google / `gemini-3.1-flash-image` | Original game key art |
+| `lyra.jpg`, `mira.jpg`, `theron.jpg` | Google / `gemini-3.1-flash-image` | Original character portraits |
+| `marble.jpg`, `sky.jpg` | Google / `gemini-3.1-flash-image` | Architectural texture and sky artwork |
+| `music-explore.mp3` | Google / `lyria-3-clip-preview` | Original exploration score, 30.772 seconds |
+| `music-sanctuary.mp3` | Google / `lyria-3-clip-preview` | Original sanctuary score, 27.324 seconds |
+| `intro.wav` | Gradium / `default` | Spoken opening, 12.24 seconds |
 
-The Gemini assets were generated on September 26, 2026. [`public/generated/manifest.json`](../public/generated/manifest.json) records their exact prompts, models, generation times, and provider usage. [`public/generated/voices/manifest.json`](../public/generated/voices/manifest.json) records the Gradium model, voice identifier, spoken text, generation time, and output sizes. Neither manifest contains a credential.
+The music prompts request instrumental lyre, harp, wooden flute, strings and restrained percussion, with no lyrics or modern synthesis. Exploration music plays during scavenging; sanctuary music accompanies camp. The introduction uses the configured Gradium voice. Live conversations use `/api/voice`; browser speech is labeled separately if that provider is unavailable.
 
-Mission selection applies its starting modifier for 15 seconds after resetting the run. All missions retain the 12-shard objective and 90-second survival requirement. Saved briefs display **GEMINI MISSION**; new director responses display **GEMINI LIVE** only after a successful live request. Sound is off initially. With sound enabled, a selected mission plays its saved Gradium briefing; unavailable audio uses the existing labeled voice fallback.
+[`manifest.json`](../public/oracle/manifest.json) records each asset's provider, model, exact prompt or spoken text, generation timestamp and original byte count. JPEGs were subsequently resized and compressed with macOS `sips` for delivery; this optimization did not regenerate them. Manifest byte counts describe the original provider output and may differ from the optimized files. Credentials are not recorded.
 
-## Regenerate deliberately
+## Generate missing assets
 
-These commands read server-only provider settings and spend provider credits. They are not build steps:
+The script reads server credentials from the environment or ignored `.env`. It preserves files that already exist and calls a provider only for missing assets selected by the command. Generation is not part of a build or normal gameplay.
 
 ```bash
-node scripts/generate-resources.mjs missions
-node scripts/generate-resources.mjs sky
-node scripts/generate-voice.mjs
+node scripts/generate-oracle-assets.mjs all
+node scripts/generate-oracle-assets.mjs images
+node scripts/generate-oracle-assets.mjs music
+node scripts/generate-oracle-assets.mjs voice
+node scripts/generate-oracle-assets.mjs lyra.jpg
 ```
 
-Generate voice again whenever mission text changes. The Gemini script validates the mission structure and JPEG output before replacing assets. The Gradium script validates the WAV response. Keep credentials in the ignored local environment or server runtime secrets, never in an asset or browser bundle.
+Image and music generation require `GEMINI_API_KEY`; speech generation requires `GRADIUM_API_KEY`. The script fixes the models listed above and uses `GRADIUM_VOICE_ID` when configured. Generating a missing asset spends provider credits. To intentionally replace an asset, move the existing file aside before selecting its filename. Output provenance is written to the manifest.
 
-## Social preview
+Files under `public/generated/`, the former ECHO SHIFT mission library and its older generation scripts belong to the previous game. They are retained compatibility resources and do not document the current ORACLE experience.
 
-`public/og.png` is the finished promotional card, generated with the built-in ImageGen tool.
-
-Generation prompt:
-
-> Use case: ads-marketing. Create one finished landscape social link-preview card, approx 1200x630 aspect ratio, for an actual browser 3D game called ECHO SHIFT. Premium editorial game art. Large tight bold cream typography 'ECHO' above acid-lime typography 'SHIFT' on left, small exact tagline 'The world listens.' below. Right side depicts a small faceted futuristic hovercraft with cyan luminous engines skimming a dark teal endless ocean toward one monumental glowing pale-lime circular portal. Floating angular basalt islands, peach sunset horizon in distant atmospheric fog, small cyan crystal shards, restrained cinematic game graphics. Dark ink navy #09131a and teal palette, acid-lime #dbff73 typography, warm ivory #f2f0df. Strong negative space around title, beautifully legible at small sizes. All text exactly as specified only. No logos, sponsors, other text, UI buttons, watermark or extra lettering. Deliver as a complete coherent card, not a webpage mockup.
+Provider references: [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation), [Lyria music generation](https://ai.google.dev/gemini-api/docs/music-generation), and [Gradium speech REST guide](https://docs.gradium.ai/guides/text-to-speech-rest).

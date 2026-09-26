@@ -1,0 +1,76 @@
+{
+  "assets": [
+    {
+      "path": "cover.jpg",
+      "provider": "Google",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Original cinematic game key art for THE LAST ORACLE, no text or lettering. A young Greek woman courier with dark braided hair, ivory linen tunic, teal cloak and bronze bracers stands on a white marble sanctuary terrace overlooking an ancient Mediterranean village and turquoise sea. A distant volcanic island sends a dramatic ash plume into a luminous apricot sunset. Olive trees, bougainvillea, terracotta rooftops, Greek columns, small ships. Sophisticated stylized realistic painted game art, warm sun rays, atmospheric perspective, richly detailed stone and fabric, fine film grain. Hero on right third, uncluttered dark blue teal shadow on left third suitable for overlay title. Wide cinematic composition, original characters and setting, no modern elements, no copied franchise iconography.",
+      "generatedAt": "2026-09-26T13:24:30.681Z",
+      "bytes": 3324236
+    },
+    {
+      "path": "mira.jpg",
+      "provider": "Google",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Original premium game character portrait, head and shoulders of Mira, a kind but resolute 42-year-old ancient Greek female healer, warm olive skin, green eyes, curly chestnut hair gathered with an ivory cloth band, sage green linen robe and modest bronze pendant, sprig of medicinal herbs in hand. Looking toward viewer. Painterly realistic 3D game concept art, bronze and sage palette, warm rim light, detailed skin and fabric, softly blurred dark teal background. No text, no logos, no frame. All original design.",
+      "generatedAt": "2026-09-26T13:24:31.342Z",
+      "bytes": 3086355
+    },
+    {
+      "path": "lyra.jpg",
+      "provider": "Google",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Original premium game character portrait, head and shoulders of Lyra, a courageous 25-year-old ancient Greek female courier, olive skin, hazel eyes, dark braided hair loosely tied back, ivory linen tunic, teal wool cloak with bronze clasp, small scratch on cheek. Quiet resolve, looking toward viewer. Painterly realistic 3D game concept art, Greek antiquity, bronze and teal palette, warm rim light, detailed skin and fabric, softly blurred dark teal background. No text, no logos, no frame. All original design.",
+      "generatedAt": "2026-09-26T13:24:31.621Z",
+      "bytes": 2712848
+    },
+    {
+      "path": "theron.jpg",
+      "provider": "Google",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Original premium game character portrait, head and shoulders of Theron, a weathered 55-year-old ancient Greek shipwright, sun-tanned olive skin, short curly silver-black hair, short greying beard, strong brows, ochre linen tunic and leather shoulder strap, trustworthy wry expression. Looking toward viewer. Painterly realistic 3D game concept art, bronze and ochre palette, warm rim light, detailed skin and fabric, softly blurred dark teal background. No text, no logos, no frame. All original design.",
+      "generatedAt": "2026-09-26T13:24:45.088Z",
+      "bytes": 2794342
+    },
+    {
+      "path": "sky.jpg",
+      "provider": "Google",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Continuous panoramic sky texture for an ancient Mediterranean 3D game at late golden hour. Sky only. Soft faded blue upper sky, luminous apricot and warm golden haze toward bottom horizon, fine long wispy cloud banks and atmospheric delicate clouds. Natural quiet painterly realism. No sun disc, ground, buildings, sea, mountain, text or logos. Left and right edges should match seamlessly. Horizon entirely at bottom edge. Sophisticated muted atmosphere, low contrast.",
+      "generatedAt": "2026-09-26T13:24:46.459Z",
+      "bytes": 2127130
+    },
+    {
+      "path": "marble.jpg",
+      "provider": "Google",
+      "model": "gemini-3.1-flash-image",
+      "prompt": "Seamlessly tileable texture of warm pale ivory ancient Greek limestone and marble paving, delicate subtle beige weathering and fine natural veins, evenly illuminated orthographic top down PBR albedo texture, flat no perspective, no cast shadows, no border, no objects or text. Restrained small-scale detail suitable for 3D game sanctuary architecture.",
+      "generatedAt": "2026-09-26T13:24:47.316Z",
+      "bytes": 3647421
+    },
+    {
+      "path": "intro.wav",
+      "provider": "Gradium",
+      "model": "default",
+      "prompt": "The mountain is waking. I have one minute to gather food, water, herbs, and timber. Mira and Theron are still in the village. I must bring them to the sanctuary before the ash arrives.",
+      "generatedAt": "2026-09-26T13:24:52.488Z",
+      "bytes": 1175084
+    },
+    {
+      "path": "music-sanctuary.mp3",
+      "provider": "Google",
+      "model": "lyria-3-clip-preview",
+      "prompt": "Instrumental only, no voices or lyrics. A 30 second seamless looping cinematic sanctuary theme for an original ancient Greek survival game. Intimate plucked lyre, soft ancient harp, breathy wooden flute, warm low bowed strings, distant soft frame drum. Peaceful and poignant hope after a catastrophe, flickering fire beneath a starry Mediterranean sky. 70 BPM, D Dorian, delicate sparse melody and long atmospheric breaths. Polished organic acoustic recording, no synths, no copied melodies. Loop-friendly ending and beginning share the same gentle drone. Original composition.",
+      "generatedAt": "2026-09-26T13:24:54.206Z",
+      "bytes": 661852
+    },
+    {
+      "path": "music-explore.mp3",
+      "provider": "Google",
+      "model": "lyria-3-clip-preview",
+      "prompt": "Instrumental only, no voices or lyrics. A 30 second seamless looping game exploration score for an original ancient Greek island survival adventure. Evocative plucked lyre and ancient harp ostinato, warm low cello drone, airy wooden flute, restrained hand drums building a gentle sense of urgency. Noble, mysterious, sunlit Mediterranean atmosphere with approaching danger. 105 BPM, D Dorian. Clear melody, cinematic polished recording, no modern electronic synths, no loud trailer hits. Loop-friendly opening and ending on the same suspended chord with sustained ambience. Original composition.",
+      "generatedAt": "2026-09-26T13:24:55.182Z",
+      "bytes": 744607
+    }
+  ]
+}

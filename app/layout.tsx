@@ -18,15 +18,15 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = (incoming.get("x-forwarded-host") || incoming.get("host") || "localhost:3000").split(",")[0].trim();
   const protocol = host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
   const base = new URL(`${protocol}://${host}`);
-  const title = "Echo Shift — The world listens";
-  const description = "Pilot a hovercraft through floating ocean ruins in a playable 3D browser game. Collect crystals, dodge storms, and tell the AI director how to change your world.";
-  const image = new URL("/og.png", base).toString();
+  const title = "The Last Oracle — An Aegean Survival Story";
+  const description = "One minute to gather. Five days to endure. Explore an ancient Greek island in 3D, rescue companions, speak with your hero, and keep the beacon alive.";
+  const image = new URL("/oracle/cover.jpg", base).toString();
   return {
     metadataBase: base, title, description,
-    icons: { icon: "/favicon.png" },
+    icons: { icon: "/oracle/lyra.jpg" },
     openGraph: {
-      type: "website", title, description, siteName: "Echo Shift", url: base.toString(),
-      images: [{ url: image, alt: "ECHO SHIFT — The world listens. A hovercraft crosses luminous ocean ruins." }],
+      type: "website", title, description, siteName: "The Last Oracle", url: base.toString(),
+      images: [{ url: image, alt: "The Last Oracle — Lyra looks over an ancient Mediterranean island as a distant volcano awakens." }],
     },
     twitter: { card: "summary_large_image", title, description, images: [image] },
   };

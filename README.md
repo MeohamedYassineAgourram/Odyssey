@@ -1,10 +1,8 @@
-# Echo Shift
+# THE LAST ORACLE
 
-**The world listens.** A 3D browser game made for the {Tech: Europe} AI Gaming Hack in Paris. Pilot a hovercraft through floating ocean ruins, collect 12 energy shards, and survive a 90-second expedition. Tell the director what you want to happen: a storm, more shards, a speed boost, calmer waters, or a shield repair.
+**One minute. Five days. A final hope.** An original 3D survival adventure set on an ancient Greek island threatened by a volcanic eruption. Play as Lyra, gather supplies, rescue Mira and Theron, and lead the party through five days in a sanctuary. Build a beacon before the rescue ship passes.
 
-The game is playable without API keys. It clearly labels its local director; live Gemini, Gradium voice, and Cognition missions activate when their server credentials are configured.
-
-The bundled mission library contains three briefs generated with Gemini. An optional generated sky adds atmosphere behind the live 3D world, and bundled Gradium briefings play when sound is enabled. These saved resources work without calling a provider during a flight. Their provenance is documented in [assets](docs/ASSETS.md).
+The island uses Three.js geometry, animated characters, lighting, particles, and an ocean shader. Google-generated portraits, textures and Lyria music accompany the game. Lyra, Mira and Theron support contextual Gemini conversations and Gradium speech. The core game and bundled assets work without provider keys; unavailable conversations use a clearly labeled local story guide.
 
 ## Run locally
 
@@ -12,59 +10,55 @@ Requires Node.js 22.13 or newer and a browser with WebGL support.
 
 ```bash
 npm install
-```
-
-Copy `.env.example` to `.env` if `.env` does not already exist, then add any provider keys you want to enable. Keep existing credentials when updating an environment file. Restart development after editing it.
-
-```bash
 npm run dev
 ```
 
-Open the local URL printed by the server. No database is required. The best score is stored only in the current browser.
+Open the URL printed by the server. No database is needed. For live conversations and speech, copy `.env.example` to `.env` only if it does not already exist, fill in the relevant keys, and restart the server. Preserve any existing credentials.
 
 ## Play
 
-- **A / D** or **left / right arrows:** steer between lanes.
-- **Space:** hold to boost while energy is available.
-- **P / Escape:** pause or resume. Leaving the window also pauses a run.
-- **Touch controls:** steer and boost using the on-screen buttons.
-- **Director:** send a short request or choose a prompt to change the world.
-- **Missions & controls:** launch Still Tide, Gale Front, or Crystal Bloom. Each starts with its named world modifier for 15 seconds, followed by the usual expedition. Saved mission lines are labeled **GEMINI MISSION**, separately from the live director.
-- **Voice:** enable narration; microphone input uses available browser speech recognition.
-- **Cognition workshop:** explicitly request an asynchronous custom mission, then apply it when ready. Each request may spend up to 1 ACU from your Devin account.
+| Control | Action |
+| --- | --- |
+| WASD / arrow keys | Move Lyra |
+| Shift | Sprint while stamina lasts |
+| E / interaction button | Collect supplies, rescue a companion, or enter the sanctuary |
+| Drag / scroll | Orbit / zoom the camera |
+| Escape / pause button | Pause or resume; Escape closes an open dialogue |
+| Character portraits | Talk to Lyra or a rescued companion |
+| Microphone button | Dictate a message when browser speech recognition is available |
+| Speaker button | Mute or enable music and speech |
+| On-screen arrows | Move on touch devices |
 
-Finish the full expedition with at least 12 shards and some shield remaining. Obstacles damage the shield. Start another expedition to beat your browser's best score.
+Gather food, water, herbs and timber during the 60-second supply run. Aim for five food, five water and six timber; find Mira and Theron, then enter the glowing sanctuary before the ash arrives. Conversations pause the supply run.
 
-## Sponsor services
+At camp, make one story decision each day before resting. The whole party shares **one food and one water per night**, regardless of its size. Missing food costs 14 health and 7 hope; missing water costs 22 health and 10 hope. Two timber build one beacon stage, and one herb restores 20 health. Building and healing can be repeated while resources and their caps allow. Mira improves treatment and gathering choices; Theron improves salvage and construction choices.
 
-| Variable | Enables | Default |
+**Win by surviving the fifth night with health above zero and a three-stage beacon.** Running out of health or reaching the final night without the beacon ends the journey.
+
+## Provider settings
+
+| Variable | Purpose | Default |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | Google DeepMind / Gemini live director | Local director without a key |
-| `GEMINI_MODEL` | Gemini model override | `gemini-3.8-flash` |
-| `GRADIUM_API_KEY` | Gradium spoken director lines | Voice provider unavailable without a key |
+| `GEMINI_API_KEY` | Live character conversations; image/music generation | Local dialogue without a key |
+| `GEMINI_MODEL` | Conversation model | `gemini-3.8-flash` |
+| `GRADIUM_API_KEY` | Live character speech; introduction generation | Labeled browser speech fallback |
 | `GRADIUM_VOICE_ID` | Gradium voice | `YTpq7expH9539ERJ` |
-| `GRADIUM_MODEL` | Gradium model | `default` |
-| `DEVIN_API_KEY` | Cognition / Devin mission workshop | Disabled without a key |
+| `GRADIUM_MODEL` | Live speech model | `default` |
+| `DEVIN_API_KEY` | Retained legacy workshop endpoint | Not connected to this game |
 
-Keys stay on the server. Configure deployed credentials as Sites runtime secrets. `/api/status` reports whether credentials are configured, never their values. Provider errors fall back to the labeled local director or show an unavailable state; they are not represented as successful AI responses. Browser speech fallback is labeled separately from Gradium.
+Keys remain on the server. `/api/status` exposes configuration flags, not credentials. Gemini replies are labeled only after a successful provider response; local dialogue and browser speech have separate labels. Google and Gradium are actively used. Cognition's legacy workshop is not connected to ORACLE, YG's offering is unidentified, and Voodoo is credited as an event host. This build does not claim technical use of every sponsor. See [sponsor details](docs/SPONSORS.md).
 
-Gemini model access, mission and sky generation, a live director request, and Gradium mission voice generation were verified with the supplied server credentials on September 26, 2026. The bundled mission library loads saved JSON and audio directly.
-
-Voodoo is credited as the event co-host and arcade design reference. YG is credited as an event partner; its identity and API were not established from the event resources. The project does not claim a live technical integration with either. See [sponsor integration details and official sources](docs/SPONSORS.md).
-
-## Development
+## Development and verification
 
 ```bash
-npm run lint
-npm run typecheck
 npm test
+npm run typecheck
+npm run lint
 npm run build
 ```
 
-The API tests compile the small server modules into a temporary directory and exercise game outcomes, validation, deterministic fallback, and mocked Gemini/Gradium responses. They do not spend credits. Live authenticated provider calls require your event credentials and remain a separate verification step.
+The current 13 tests, type checking, lint and production build passed. HTTP checks returned 200 for the page and bundled assets. Tests cover survival boundaries, immutable state, resources, request validation, provider contracts and fallbacks; they use mocked provider responses and do not spend credits. A separate live `/api/converse` request returned `source: "gemini"` and `action: "mark_supplies"`. The bundled artwork, music and introduction were generated through real provider calls on September 26, 2026. Browser visual testing was unavailable, so these checks are not a claim of completed browser playtesting.
 
-To deliberately regenerate the saved Gemini resources with your configured key, run `node scripts/generate-resources.mjs missions`, `sky`, or `all`. This spends Google API credits and writes the validated output and its provenance manifest. Generation is never part of the normal build or gameplay.
+`app/page.tsx` contains the interface, `app/oracle/` contains the world, characters, engine and survival rules, and `app/api/` contains server integrations. The application uses React, TypeScript, Three.js and vinext. Sites hosting configuration remains in `.openai/hosting.json`; publishing is managed through Sites.
 
-Run `node scripts/generate-voice.mjs` to regenerate the three saved Gradium mission briefings after changing the mission pack. It spends Gradium credits and records the voice and exact text in a separate manifest.
-
-Built with React, TypeScript, Three.js, and vinext on Cloudflare Workers. `app/page.tsx` contains the interface, `app/game/` contains the 3D engine and rules, and `app/api/` contains the server integrations. `.openai/hosting.json` and the Sites Vite plugin preserve the deployment setup. `npm run start` serves a production build; publishing is managed through Sites.
+To generate missing bundled assets, run `node scripts/generate-oracle-assets.mjs all`. It preserves existing files and spends provider credits only for missing selected assets. See [asset provenance and generation options](docs/ASSETS.md). Older ECHO SHIFT files remain for compatibility and are not features of the current game.

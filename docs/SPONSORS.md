@@ -1,57 +1,36 @@
-# ECHO SHIFT sponsor integrations
+# THE LAST ORACLE sponsor integrations
 
-ECHO SHIFT is a playable 3D browser game with optional server-side AI services. Its core hovercraft gameplay works without provider credentials. A configured integration and a successfully completed provider call are different states: a missing key or failed request must never be described as a live sponsor response.
+Google and Gradium have completed real provider calls for this game. A configured key, saved generated asset and successful live reply are distinct states. The interface labels local dialogue and browser speech fallbacks; they are not presented as sponsor responses.
 
-| Sponsor | Role in this project | What is required |
+| Sponsor | Current use | Verified status |
 | --- | --- | --- |
-| Google DeepMind / Gemini | A natural-language game director selects a supported world event and writes a short response using constrained JSON output. Gemini also generates the saved opening missions and optional atmospheric sky. | `GEMINI_API_KEY` for live calls and regeneration. Bundled resources work without a key; the local director is explicitly labeled. |
-| Gradium | Generates spoken director responses and saved mission briefings as WAV audio through its official text-to-speech REST endpoint. | `GRADIUM_API_KEY` for live calls and regeneration; optional voice and model settings. Saved briefings need no key for playback. Any browser voice fallback is browser speech, not Gradium. |
-| Cognition / Devin | An optional workshop creates one mission brief and event through a real, asynchronous Devin session. Each requested session has a maximum of 1 ACU. | `DEVIN_API_KEY`, available credits, and an explicit workshop action. No session starts automatically. |
-| Voodoo | Event co-host and reference for a short, readable arcade loop, replayability, and progression. | No Voodoo runtime integration is claimed. Public publishing materials describe partner/mobile tooling; a public browser SDK was not established. Ask the event team for any hackathon-specific offering. |
-| YG | Acknowledged event partner. | The official event listing gives only the unlinked name “YG.” Its identity, API, and event resources remain unverified. Supply the sponsor's official resource before implementing an integration. |
+| Google DeepMind / Gemini | Contextual conversations with Lyra, Mira and Theron; six generated images; two original Lyria music tracks | Generated assets are bundled. A live `/api/converse` request returned `source: "gemini"` and `action: "mark_supplies"`. |
+| Gradium | Generated opening narration and live speech through `/api/voice` | The bundled introduction is a validated 12.24-second WAV generated with `default`. Live speech depends on provider availability. |
+| Cognition / Devin | A guarded legacy `/api/workshop` create/poll adapter remains in the repository | No supplied key and no connection to the ORACLE interface. It does not count as an active game integration. |
+| Voodoo | Event host acknowledgement | No runtime service integration is claimed. |
+| YG | Event partner acknowledgement | Its identity, technical offering and access details remain unconfirmed. No integration is claimed. |
 
-The project therefore has three real API adapters, with live operation dependent on credentials. It does **not** claim that all five sponsors have functioning technology integrations.
+The requirement to use every sponsor is therefore **not fully met**. The remaining sponsor details and Cognition access were requested; they have not been supplied. Credits acknowledge those partners without implying technology use.
 
-## Configure provider access
+## Active integrations
 
-Copy `.env.example` to the ignored `.env` file for local development. For a Sites deployment, configure the corresponding server-side runtime secrets through Sites. Do not expose provider keys in browser code or variables prefixed with `NEXT_PUBLIC_`.
+**Gemini:** `POST /api/converse` accepts a character, player message, bounded conversation history and current game context. The server calls the Gemini Interactions API with `store: false`, low thinking and a JSON response schema. Replies contain up to 300 characters, an emotion, and either `none` or `mark_supplies`. Supply markers are allowed only during scavenging; conversation cannot grant resources or alter survival rules. Malformed or unavailable provider responses use the labeled local story guide.
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `GEMINI_API_KEY` | Gemini developer API key | Unconfigured |
-| `GEMINI_MODEL` | Model for structured director responses | `gemini-3.8-flash` |
-| `GRADIUM_API_KEY` | Gradium API key | Unconfigured |
-| `GRADIUM_VOICE_ID` | Voice catalogue identifier | `YTpq7expH9539ERJ` |
-| `GRADIUM_MODEL` | Gradium speech model | `default` |
-| `DEVIN_API_KEY` | Cognition personal or service API key | Unconfigured |
+The default conversation model is `gemini-3.8-flash`, overridable with `GEMINI_MODEL`. Bundled images use `gemini-3.1-flash-image`; music uses `lyria-3-clip-preview`. These generated assets load without live credentials. Their prompts and generation records are in the [asset manifest](../public/oracle/manifest.json).
 
-Restart local development after changing environment values. `/api/status` reports configuration flags without returning secrets. Obtain sponsor credits and keys through the hackathon's official process; this repository does not contain any credits or credentials.
+**Gradium:** `POST /api/voice` sends completed dialogue to the official speech REST endpoint with WAV output and `only_audio: true`. It validates the response before returning audio. Missing or unavailable service produces an explicit unavailable response, and the interface can use labeled browser speech. The saved introduction uses the same provider; music comes from Lyria. Muting stops voice playback.
 
-Google API model access, structured mission generation, sky generation, and a live director request were verified using the supplied server credential on September 26, 2026. Gradium also returned validated WAV files for all three mission briefings. The generated asset manifests record those completed calls. Devin remains dependent on separately configured credentials. Local validation covers unavailable-provider behavior, input limits, output validation, and workshop session authorization. Configuration flags alone are not evidence of a successful provider response.
+`GEMINI_API_KEY` and `GRADIUM_API_KEY` stay in server-only environment settings. Optional speech settings are `GRADIUM_VOICE_ID` and `GRADIUM_MODEL`. `/api/status` returns configuration booleans, not evidence that a call succeeded. Local development uses an ignored `.env`; hosted credentials belong in Sites runtime secrets.
 
-## Integration behavior
+## Retained Cognition adapter
 
-**Gemini:** `/api/director` validates the player's short instruction and game context. The server calls the Interactions API with a JSON schema. Responses are restricted to supported events: `calm`, `storm`, `riches`, `turbo`, and `repair`. The local fallback remains clearly distinguishable from a Gemini response. Interactions are requested with storage disabled.
+The previous ECHO SHIFT workshop can create a Devin session with a maximum of 1 ACU, a constrained mission schema, and no attached knowledge or secrets. Polling is authorized with a signed, expiring HttpOnly session cookie. Its hovercraft mission prompt and event schema have not been adapted to ORACLE, and the new game exposes no workshop UI. Merely retaining this code is not evidence of Cognition use for the current game.
 
-The mission library loads `app/game/generated-missions.json`, generated with `gemini-3.8-flash`, and labels these saved briefs **GEMINI MISSION**. Launching a library mission resets the expedition before applying its 15-second starting modifier. The optional `gemini-3.1-flash-image` panorama loads asynchronously behind the procedural scene; missing artwork never blocks gameplay. Generation prompts, models, and usage are recorded in `public/generated/manifest.json`.
+## References
 
-**Gradium:** `/api/voice` submits the completed line to `https://api.gradium.ai/api/post/speech/tts` with `only_audio: true` and `output_format: "wav"`. The server validates that the response resembles a WAV file before returning audio. A missing or unavailable provider yields an explicit unavailable response.
-
-With sound enabled, library missions first play their saved `/generated/voices/{mission.id}.wav` briefing. If that asset cannot play, the existing voice route and labeled browser fallback handle the line. Muting stops playback; no voice request starts for a muted mission.
-
-**Cognition:** `POST /api/workshop` accepts `{ "brief": "A storm race through the floating ruins" }`. It starts one Devin session with `max_acu_limit: 1`, an output schema, and empty `knowledge_ids` and `secret_ids`. This avoids attaching configured organizational knowledge or secrets. The prompt requests mission data only. A returned session identifier is authorized using a signed, expiring HttpOnly cookie. `GET /api/workshop?sessionId=...` can retrieve only that browser's current authorized session, not an arbitrary Devin session. It returns a validated mission after completion. Sessions can take time, exhaust the limit, or become blocked; the session link allows the creator to inspect the result in Devin. Creating a new workshop session replaces that browser's polling authorization for the old session.
-
-The 1 ACU value caps each session; it is not an account-wide budget. The endpoints include same-origin checks and a small per-runtime rate limiter. Keep the hackathon deployment private or add persistent user authentication and quotas before offering funded AI calls publicly. Configure provider spending limits appropriate to the available credits.
-
-## Sources used
-
-- [User-provided Gemini skills repository](https://github.com/google-gemini/gemini-skills), specifically [gemini-api-dev/SKILL.md](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-api-dev/SKILL.md).
-- [User-provided Gemini cookbook](https://github.com/google-gemini/cookbook), particularly the [JSON mode quickstart](https://github.com/google-gemini/cookbook/blob/main/quickstarts/JSON_mode.ipynb).
-- [Gemini structured outputs](https://ai.google.dev/gemini-api/docs/structured-output) and [Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview).
-- [Gemini native image generation](https://ai.google.dev/gemini-api/docs/image-generation).
-- [Gradium text-to-speech REST guide](https://docs.gradium.ai/guides/text-to-speech-rest).
-- [Devin create-session reference](https://docs.devin.ai/api-reference/v1/sessions/create-a-new-devin-session) and [retrieve-session reference](https://docs.devin.ai/api-reference/v1/sessions/retrieve-details-about-an-existing-session).
-- [Voodoo publishing](https://voodoo.io/publishing) and [developer platform terms](https://voodoo.io/terms-platform).
-- [Official hackathon listing and sponsor names](https://luma.com/par-hack).
-
-These references were consulted for this build on September 26, 2026. API models, access terms, and event offerings can change.
+- User-provided [Google Gemini skills repository](https://github.com/google-gemini/gemini-skills) and [Gemini API development skill](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-api-dev/SKILL.md).
+- User-provided [Google Gemini cookbook](https://github.com/google-gemini/cookbook), including its [JSON mode quickstart](https://github.com/google-gemini/cookbook/blob/main/quickstarts/JSON_mode.ipynb).
+- Official [Gemini Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview), [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output), [image generation](https://ai.google.dev/gemini-api/docs/image-generation), and [Lyria music generation](https://ai.google.dev/gemini-api/docs/music-generation).
+- Official [Gradium speech REST guide](https://docs.gradium.ai/guides/text-to-speech-rest).
+- Official Devin [create-session](https://docs.devin.ai/api-reference/v1/sessions/create-a-new-devin-session) and [retrieve-session](https://docs.devin.ai/api-reference/v1/sessions/retrieve-details-about-an-existing-session) references for the retained adapter.
+- [Hackathon event listing](https://luma.com/par-hack).
