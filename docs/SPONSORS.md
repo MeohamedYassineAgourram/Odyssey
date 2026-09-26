@@ -4,7 +4,7 @@ Google and Gradium have generated bundled assets through real provider calls. A 
 
 | Sponsor | Current use | Evidence / limits |
 | --- | --- | --- |
-| Google DeepMind / Gemini | Contextual Troy dialogue; new Troy cover; retained portraits, sky, marble, and Lyria music | Generated files and manifests are bundled. On September 26, 2026, a real `/api/troy/converse` request returned `source: gemini`, correctly recognized first-house materials, and requested `mark_supplies`. Mocked contract and fallback tests also pass. |
+| Google DeepMind / Gemini | Contextual Troy dialogue; new Troy cover; retained portraits, sky, marble, and Lyria music | Generated files and manifests are bundled. On September 26, 2026, a real `/api/troy/converse` request returned `source: gemini`, correctly recognized first-house materials, and requested `mark_supplies`. A later live campaign request correctly described Stage 2, The Amber Oasis, its 30 plots/four landmarks, and XP sources. Mocked contract and fallback tests also pass. |
 | Gradium | New Troy introduction; live speech through `/api/voice` | Bundled Troy narration is a 12.24-second WAV generated with `default`. Live replies depend on availability. |
 | Cognition / Devin | Retained guarded `/api/workshop` adapter | Not connected to Troy; retained code does not establish active integration. |
 | Voodoo | Event host acknowledgement | No runtime service integration claimed. |
@@ -14,9 +14,9 @@ The request to use every sponsor is **not fully met**. Google and Gradium have a
 
 ## Active integrations
 
-**Gemini:** `POST /api/troy/converse` accepts Lyra, Theron, or Mira; a player message; bounded history; and validated phase, time, health, materials, building/mission counts, kills, and selected blueprint. It calls Gemini Interactions with `store: false`, low thinking, and a JSON schema. Replies contain at most 300 characters and action `none` or `mark_supplies`. Markers are allowed only during play when supplies are requested. Dialogue cannot award resources, heal, finish contracts, or change gameplay rules. Invalid or unavailable replies fall back to the labeled local city guide.
+**Gemini:** `POST /api/troy/converse` accepts Lyra, Theron, or Mira; a player message; bounded history; and validated phase, time, health, materials, building/mission counts, kills, selected blueprint, expedition stage, seed, and explored caches. It calls Gemini Interactions with `store: false`, low thinking, and a JSON schema. Replies contain at most 300 characters and action `none` or `mark_supplies`. Markers are allowed only during play when supplies are requested. Dialogue cannot award resources, heal, finish contracts, or change gameplay rules. Invalid or unavailable replies fall back to the labeled local city guide.
 
-Lyra is the founder, Theron the architect, and Mira the healer. Advice follows Troy's construction costs, mission rewards, combat, and two-minute deadline, with gentle horse foreshadowing. Previous eruption, sanctuary, and multi-day mechanics do not apply.
+Lyra is the founder, Theron the architect, and Mira the healer. Advice follows current city layouts, campaign progression, construction costs, mission rewards, enemy types, and the two-minute deadline, with gentle horse foreshadowing. Previous eruption, sanctuary, and multi-day mechanics do not apply.
 
 The conversation default is `gemini-3.8-flash`, overridable with `GEMINI_MODEL`. Images use `gemini-3.1-flash-image`; retained music uses `lyria-3-clip-preview`. See the [Troy manifest](../public/troy/manifest.json) and [reused asset manifest](../public/oracle/manifest.json).
 

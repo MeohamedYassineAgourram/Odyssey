@@ -1,7 +1,9 @@
 import { boundedText, errorResponse, guardRequest, json, readJson, RequestError } from '../../../lib/api-guard';
 import { geminiTroyConverse, localTroyConverse, type TroyConverseContext, type TroyConverseTurn } from '../../../lib/troy-converse';
 import { serverEnv } from '../../../lib/server-env';
-import { BLUEPRINTS, MISSIONS, PLOTS, RUN_DURATION } from '../../../troy/config';
+import { BLUEPRINTS, RUN_DURATION } from '../../../troy/config';
+import { createCityMap } from '../../../troy/maps';
+import { getRunMissions } from '../../../troy/rules';
 import type { BuildingKind, CharacterId, Materials, TroyPhase } from '../../../troy/types';
 
 const CHARACTERS = ['lyra', 'mira', 'theron'];
@@ -22,11 +24,15 @@ function contextFrom(value: unknown): TroyConverseContext {
   const materials = {} as Materials;
   for (const resource of ['wood', 'stone', 'bronze'] as const) materials[resource] = boundedNumber(value.materials[resource], `context.materials.${resource}`, 10_000);
   if (typeof value.selected !== 'string' || !BLUEPRINTS.some(blueprint => blueprint.id === value.selected)) throw new RequestError('Choose a known blueprint.');
+  const stage = boundedNumber(value.stage ?? 1, 'context.stage', 10_000), seed = boundedNumber(value.seed ?? 1, 'context.seed', 0xffffffff);
+  if (stage < 1 || seed < 1) throw new RequestError('Invalid expedition stage or seed.');
+  const map = createCityMap(stage, seed);
   return {
+    stage, seed, explored: boundedNumber(value.explored ?? 0, 'context.explored', map.landmarks.length),
     phase: value.phase as TroyPhase, timeLeft: boundedNumber(value.timeLeft, 'context.timeLeft', RUN_DURATION, false),
     health: boundedNumber(value.health, 'context.health', 100, false), materials,
-    buildings: boundedNumber(value.buildings, 'context.buildings', PLOTS.length),
-    missions: boundedNumber(value.missions, 'context.missions', MISSIONS.length),
+    buildings: boundedNumber(value.buildings, 'context.buildings', map.plots.length),
+    missions: boundedNumber(value.missions, 'context.missions', getRunMissions({ stage, seed }).length),
     kills: boundedNumber(value.kills, 'context.kills', 10_000), selected: value.selected as BuildingKind,
   };
 }

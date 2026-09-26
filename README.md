@@ -1,6 +1,6 @@
 # TROY 120
 
-**Build a city. Defy the odds. Trust no horse.** A two-minute 3D city-building action game. Begin with empty plots, complete contracts to fund construction, fight raiders, and build as much of Troy as you can before the bell.
+**Build a city. Defy the odds. Trust no horse.** A 3D city-building survival campaign. Explore larger cities, complete changing contracts, fight escalating sieges, and build as much as possible in two minutes. Survive to advance to a new city; earn permanent XP even in defeat.
 
 Three.js powers the city, animated characters, combat, ocean, lighting, and four horse finales. Gemini supplies contextual conversations and generated artwork; Lyria supplies bundled music; Gradium supplies narration and live speech. The game and bundled assets work without provider keys, with labeled local advice when live dialogue is unavailable.
 
@@ -13,11 +13,11 @@ npm install
 npm run dev
 ```
 
-Open the printed URL. No database is needed. For live conversations and speech, copy `.env.example` to `.env` only if it does not already exist, fill in the relevant keys, and restart. Preserve existing credentials.
+Open the printed URL. The development server provides a local Cloudflare D1 database for campaign progress. Tables initialize on first use; deployed Sites provisions the configured `DB` binding and applies the bundled Drizzle migration. For live conversations and speech, copy `.env.example` to `.env` only if it does not already exist, fill in the relevant keys, and restart. Preserve existing credentials.
 
 ## Build your Troy
 
-Each run starts with **120 seconds, 100 health, 3 timber, 2 stone, and 0 bronze**. Select a blueprint, approach one of 12 empty plots, and interact. Timber and stone deposits provide 3 units; bronze provides 2. Deposits replenish after 7 seconds.
+Each run starts with **120 seconds, 100 health, 3 timber, 2 stone, and 0 bronze**. Select a blueprint, approach one of 30 empty plots across five districts, and interact. Timber and stone deposits provide 3 units; bronze provides 2. Deposits replenish after 7 seconds.
 
 | Building | Timber / stone / bronze | Renown | Effect |
 | --- | --- | --- | --- |
@@ -26,11 +26,21 @@ Each run starts with **120 seconds, 100 health, 3 timber, 2 stone, and 0 bronze*
 | Watchtower | 3 / 3 / 1 | 230 | Automatically shoots nearby raiders |
 | Temple of Troy | 4 / 4 / 2 | 400 | Restores 4 health every 8 seconds, up to 100 |
 
-Eight contracts reward construction, collecting from three deposits, and defeating three raiders. Each pays fixed materials and renown automatically, exactly once. Your first house returns 4 timber, 3 stone, and 1 bronze plus 60 contract points.
+Eight core contracts plus two rotating bonus contracts reward construction, gathering, combat, and exploration. Each pays fixed materials and renown automatically, exactly once. Your first house returns 4 timber, 3 stone, and 1 bronze plus 60 contract points.
 
-Strike nearby enemies, dodge their attack warnings, and use watchtowers for support. Every defeated raider earns 35 points, including tower kills. Zero health ends the run immediately; its score is not banked.
+Stage one has six scheduled raids, starting at 18 seconds and repeating every 20 seconds. Skirmishers rush, brutes absorb more hits and strike harder, and archers telegraph aimed projectiles. Later stages shorten raid intervals toward 10 seconds and increase damage, health, and numbers, with difficulty capped at stage 12 and at most 18 active enemies. Strike up to three nearby enemies, dodge every 1.8 seconds, and use watchtowers for support. Sword and tower damage increases at stage five to match stronger enemies. Every defeated raider earns 35 points, including tower kills. Zero health ends the run immediately; its score is not banked.
 
-At the deadline, the Trojan horse always destroys Troy in one of four nine-second finales. Survive to bank building, contract, and combat points plus a **200-point survival bonus**. The next city starts empty. Best score, banked total, completed runs, and discovered endings persist in this browser. The next run excludes the previous selected disaster. Conversations, menus, and pausing stop the clock.
+At the deadline, the Trojan horse always destroys Troy in one of four nine-second finales. Survive to bank building, contract, and combat points plus a **200-point survival bonus**. The next city starts empty. Best score, banked total, completed runs, city stage, discovered endings, XP, and rank are stored in D1. Signed-in Sites visitors use their platform identity; anonymous/local visitors use an HttpOnly profile cookie. Clearing that anonymous cookie loses access to its profile. The next run excludes the previous selected disaster. Conversations, menus, and pausing stop the clock.
+
+## Cities and ranks
+
+Each city spans 100 × 86 world units, roughly five times the old playable area. Five districts contain 30 building plots and 15 replenishing deposits. Four outer landmark caches each award materials, 75 renown, and 35 XP. The map marks plots, resources, undiscovered caches, and typed enemies.
+
+Survival advances the stage and cycles through The Sapphire Coast, The Amber Oasis, The Emerald Vale, and The Stormbound Heights. Each has a distinct street plan, palette, and landmarks. Seeds mirror and offset districts between attempts; higher stages continue increasing difficulty until its cap. Defeat keeps the current stage and resets the city, while preserving earned XP.
+
+XP is awarded after every completed attempt: 15 per building, 8 per enemy, 25 per contract, 35 per landmark, and 150 for survival. Recruit, Bronze, Silver, Gold, Platinum, and Diamond each have three divisions; Immortal is the final rank. The first promotion is at 300 XP and Immortal begins at 36,000. This is personal progression, not a competitive matchmaking rating.
+
+`GET /api/troy/progress` loads the campaign; `POST` saves one completed run. Server validation recomputes rewards, and atomic run receipts prevent duplicate XP or stage advances on retries. The result screen waits for a successful save and offers retry on connection failure. Two simultaneous clears cannot advance the same stage twice. The game is client-simulated; this is not an anti-cheat system or public leaderboard.
 
 ## Controls
 
@@ -94,7 +104,7 @@ npm run lint
 npm run build
 ```
 
-Tests cover immutable construction and economy, exact mission rewards, production, combat deaths, ending selection, deadline/finale boundaries, API validation, and mocked provider contracts and fallbacks. Provider tests spend no credits. Controller tests use simulated standard Gamepad snapshots. These checks do not establish completed browser playtesting or physical Xbox controller testing.
+Tests cover the city economy, changing contracts, XP/rank boundaries, SQLite saves and duplicate retries, map reachability, all biome/finale combinations, combat deaths, deadline boundaries, API validation, and mocked provider contracts and fallbacks. Provider tests spend no credits. Controller tests use simulated standard Gamepad snapshots. These checks do not establish completed browser playtesting or physical Xbox controller testing.
 
 `app/page.tsx` contains the UI; `app/troy/` contains the city, engine, configuration, and rules. Reusable character models and controller support remain under `app/oracle/`. The app uses React, TypeScript, Three.js, and vinext. Sites hosting configuration is in `.openai/hosting.json`.
 

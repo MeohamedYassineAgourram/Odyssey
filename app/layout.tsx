@@ -19,7 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
   const base = new URL(`${protocol}://${host}`);
   const title = "Troy 120 — Two Minutes to Legend";
-  const description = "Build Troy from scratch in 120 seconds. Complete contracts, earn materials, fight raiders, and discover four unpredictable Trojan Horse finales. Cities fall. Your legend stays.";
+  const description = "Explore four vast cities, build defenses, and survive two-minute sieges. Face escalating enemy waves, complete changing contracts, earn XP, and rise from Recruit to Immortal.";
   const image = new URL("/troy/cover.jpg", base).toString();
   return {
     metadataBase: base, title, description,

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { FINALE_DURATION, PLOTS, RESOURCE_NODES } from './config';
-import type { BuildingKind, RunState } from './types';
+import { FINALE_DURATION } from './config';
+import { createCityMap } from './maps';
+import type { BuildingKind, CityMap, RunState } from './types';
 
 export type Collider = { x: number; z: number; w: number; d: number };
 type Building = { id: string; kind: BuildingKind; mesh: THREE.Group; rubble: THREE.Group; sparks: THREE.InstancedMesh; x: number; z: number; age: number; order: number };
@@ -18,12 +19,26 @@ export type TroyWorld = {
 const clamp = (x: number) => Math.max(0, Math.min(1, x));
 const smooth = (x: number) => { const t = clamp(x); return t * t * (3 - 2 * t); };
 
-export function createTroyWorld(): TroyWorld {
-  const root = new THREE.Group(); root.name = 'Troy — a city on borrowed time';
+export function createTroyWorld(map: CityMap = createCityMap(1, 1)): TroyWorld {
+  const PLOTS = map.plots, RESOURCE_NODES = map.resources;
+  const { bounds, gate: gatePoint, spawn } = map;
+  const width = bounds.maxX - bounds.minX, depth = bounds.maxZ - bounds.minZ;
+  const centerX = (bounds.minX + bounds.maxX) / 2, centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const minPlotZ = Math.min(...PLOTS.map(p => p.z)), maxPlotZ = Math.max(...PLOTS.map(p => p.z));
+  const districtOrder = (z: number) => clamp((z - minPlotZ) / Math.max(1, maxPlotZ - minPlotZ));
+  const horseStartZ = gatePoint.z - 4.4;
+  const palettes = {
+    coast: { stone: '#dcc69a', ivory: '#f7e7c8', shadow: '#b99b70', ground: '#e9d8b2', plaster: '#efe2c3', tile: '#b75436', leaf: '#75834d', lightLeaf: '#9ba66d', accent: '#397d85' },
+    desert: { stone: '#dbac70', ivory: '#ffe4aa', shadow: '#ae7948', ground: '#dab675', plaster: '#f2cd92', tile: '#a66636', leaf: '#667a45', lightLeaf: '#9fa46a', accent: '#398f93' },
+    forest: { stone: '#b8b894', ivory: '#e8e5c6', shadow: '#858e67', ground: '#8e9c71', plaster: '#dedcbe', tile: '#865139', leaf: '#406b43', lightLeaf: '#70945a', accent: '#617f67' },
+    highland: { stone: '#aab2b4', ivory: '#e2e6df', shadow: '#757f83', ground: '#a1aca3', plaster: '#d2d5c9', tile: '#536774', leaf: '#4f665b', lightLeaf: '#8a9a79', accent: '#547985' },
+  };
+  const palette = palettes[map.theme];
+  const root = new THREE.Group(); root.name = map.name;
   const landscape = new THREE.Group(); root.add(landscape);
   const colliders: Collider[] = [], staticColliders: Collider[] = [];
   const buildings = new Map<string, Building>(), supplies = new Map<string, Supply>(), plots = new Map<string, THREE.Group>();
-  let seed = 29171;
+  let seed = 29171 + map.id.split('').reduce((sum, char) => sum + char.charCodeAt(0) * 137, 0);
   const random = () => { seed = seed * 16807 % 2147483647; return (seed - 1) / 2147483646; };
   const materials = new Map<string, THREE.MeshStandardMaterial>();
   const material = (color: string, roughness = .88, metalness = 0) => {
@@ -32,9 +47,9 @@ export function createTroyWorld(): TroyWorld {
     if (!mat) { mat = new THREE.MeshStandardMaterial({ color, roughness, metalness }); materials.set(key, mat); }
     return mat;
   };
-  const stone = material('#dcc69a'), ivory = material('#f7e7c8'), shadowStone = material('#b99b70'), plaster = material('#efe2c3'), tile = material('#b75436'), tileLight = material('#dc8051');
-  const wood = material('#785034'), lightWood = material('#b5834f'), darkWood = material('#473323'), olive = material('#75834d'), leafLight = material('#9ba66d'), cypressMat = material('#3f5b3e');
-  const turquoise = material('#397d85'), dark = material('#313e3b'), bronze = material('#b68742', .45, .48), gold = material('#e5ba66', .35, .56);
+  const stone = material(palette.stone), ivory = material(palette.ivory), shadowStone = material(palette.shadow), plaster = material(palette.plaster), tile = material(palette.tile), tileLight = material('#dc8051');
+  const wood = material('#785034'), lightWood = material('#b5834f'), darkWood = material('#473323'), olive = material(palette.leaf), leafLight = material(palette.lightLeaf), cypressMat = material('#3f5b3e');
+  const turquoise = material(palette.accent), dark = material('#313e3b'), bronze = material('#b68742', .45, .48), gold = material('#e5ba66', .35, .56);
   const boxGeo = new THREE.BoxGeometry(1, 1, 1), cylGeo = new THREE.CylinderGeometry(1, 1, 1, 12), ballGeo = new THREE.IcosahedronGeometry(1, 1), coneGeo = new THREE.ConeGeometry(1, 1, 8);
   const ringGeo = new THREE.TorusGeometry(1, .085, 6, 24);
   const triangle = new THREE.Shape(); triangle.moveTo(-.5, 0); triangle.lineTo(.5, 0); triangle.lineTo(0, 1); triangle.closePath();
@@ -69,84 +84,95 @@ export function createTroyWorld(): TroyWorld {
       if (merged) { const mesh = new THREE.Mesh(merged, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = 'Batched handcrafted architecture'; meshes.forEach(m => m.removeFromParent()); group.add(mesh); }
     }
   };
-  const pavingMat = material('#e9d8b2'); pavingMat.name = 'Troy paving';
-  box(landscape, pavingMat, 0, -.2, .5, 50, .4, 43);
-  box(landscape, shadowStone, 0, -2.65, .5, 49.7, 4.9, 42.6);
-  // Warm limestone cliff facets frame the turquoise water provided by the engine.
-  for (let i = 0; i < 78; i++) {
-    const edge = i % 4; const along = random();
-    const x = edge < 2 ? (edge ? -1 : 1) * (24.7 + random() * .8) : along * 50 - 25;
-    const z = edge < 2 ? along * 43 - 21 : (edge === 2 ? -20.8 : 21.9) + random() * .6;
-    const rock = make(ballGeo, i % 3 ? shadowStone : stone, landscape, x, -2.5 - random(), z, 1.3 + random() * 2.4, 1.7 + random() * 2, 1.5 + random() * 1.6);
+  const pavingMat = material(palette.ground); pavingMat.name = 'Troy paving';
+  box(landscape, pavingMat, centerX, -.2, centerZ, width + 6, .4, depth + 6);
+  box(landscape, shadowStone, centerX, -2.65, centerZ, width + 5.7, 4.9, depth + 5.7);
+  for (let i = 0; i < 132; i++) {
+    const edge = i % 4, along = random();
+    const x = edge < 2 ? (edge ? bounds.minX - 2.7 : bounds.maxX + 2.7) : bounds.minX - 3 + along * (width + 6);
+    const z = edge < 2 ? bounds.minZ - 3 + along * (depth + 6) : edge === 2 ? bounds.minZ - 2.7 : bounds.maxZ + 2.7;
+    const rock = make(ballGeo, i % 3 ? shadowStone : stone, landscape, x, -2.5 - random(), z, 1.8 + random() * 3, 1.7 + random() * 2, 1.8 + random() * 3);
     rock.rotation.set(random(), random() * 3, random() * .5);
   }
-  // A broad processional avenue remains clear even after all twelve plots are built.
-  box(landscape, ivory, 0, .013, 0, 4.65, .04, 38);
-  for (const x of [-2.2, 2.2]) box(landscape, bronze, x, .04, 0, .065, .025, 37.8);
-  for (const z of [-9.7, -2.5, 4.5, 11.55]) {
-    box(landscape, ivory, 0, .018, z, 37, .04, 1.6);
-    for (const dz of [-.68, .68]) box(landscape, shadowStone, 0, .044, z + dz, 37, .02, .055);
+  // The actual navigation network also supplies the paving: each district stays connected.
+  for (const road of map.roads) box(landscape, ivory, road.x, .023, road.z, road.w, .045, road.d);
+  for (const road of map.roads.filter((_, i) => i % 8 === 0)) {
+    const inset = box(landscape, turquoise, road.x, .053, road.z, .22, .018, .22); inset.rotation.y = Math.PI / 4;
   }
-  for (let i = 0; i < 32; i++) {
-    const z = -17.5 + i * 1.05;
-    box(landscape, stone, 0, .045, z, .8, .025, .03);
-    for (const x of [-1.55, 1.55]) { const mosaic = box(landscape, turquoise, x, .045, z, .16, .025, .16); mosaic.rotation.y = Math.PI / 4; }
-  }
-  cyl(landscape, stone, 0, .04, 13.35, 3.1, .065);
-  for (const r of [1.8, 2.55, 2.98]) torus(landscape, r === 2.55 ? turquoise : bronze, 0, .074, 13.35, r, true).scale.z = .035;
-  // Small public fountain stands off the avenue, outside the construction sites.
-  cyl(landscape, stone, 10.1, .17, 14.15, 1.25, .3); cyl(landscape, ivory, 10.1, .37, 14.15, 1.08, .16);
-  torus(landscape, ivory, 10.1, .62, 14.15, 1.03, true);
-  cyl(landscape, material('#52adb1', .2), 10.1, .51, 14.15, .96, .035);
-  cyl(landscape, bronze, 10.1, .85, 14.15, .13, .7); cyl(landscape, ivory, 10.1, 1.2, 14.15, .42, .1);
-  staticColliders.push({ x: 10.1, z: 14.15, w: 2.5, d: 2.5 });
-  const fountainWater = new THREE.Group(); fountainWater.position.set(10.1, 0, 14.15); root.add(fountainWater);
+  cyl(landscape, stone, spawn.x, .04, spawn.z, 2.35, .065);
+  for (const radius of [1.7, 2.2]) torus(landscape, radius < 2 ? turquoise : bronze, spawn.x, .074, spawn.z, radius, true).scale.z = .035;
+  const reserved = [...map.resources, ...map.landmarks, ...map.advisors, spawn, gatePoint];
+  const openSpace = (x: number, z: number, radius: number, protectRoads = true) => {
+    if (x < bounds.minX + radius + 1 || x > bounds.maxX - radius - 1 || z < bounds.minZ + radius + 1 || z > bounds.maxZ - radius - 1) return false;
+    if (PLOTS.some(p => Math.abs(p.x - x) < 2.65 + radius && Math.abs(p.z - z) < 2.65 + radius)) return false;
+    if (reserved.some(p => Math.hypot(p.x - x, p.z - z) < radius + 3.2)) return false;
+    if (protectRoads && map.roads.some(r => Math.abs(r.x - x) < r.w / 2 + radius + .6 && Math.abs(r.z - z) < r.d / 2 + radius + .6)) return false;
+    return !staticColliders.some(c => Math.abs(c.x - x) < c.w / 2 + radius + .6 && Math.abs(c.z - z) < c.d / 2 + radius + .6);
+  };
+  const findScenery = (nearX: number, nearZ: number, radius: number) => {
+    for (let ring = 5; ring < 25; ring += 2.5) for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, x = nearX + Math.sin(a) * ring, z = nearZ + Math.cos(a) * ring; if (openSpace(x, z, radius)) return { x, z }; }
+    return { x: bounds.minX + 5, z: centerZ };
+  };
+  const fountain = findScenery(spawn.x, spawn.z, 1.5);
+  cyl(landscape, stone, fountain.x, .17, fountain.z, 1.25, .3); cyl(landscape, ivory, fountain.x, .37, fountain.z, 1.08, .16);
+  torus(landscape, ivory, fountain.x, .62, fountain.z, 1.03, true);
+  cyl(landscape, material('#52adb1', .2), fountain.x, .51, fountain.z, .96, .035);
+  cyl(landscape, bronze, fountain.x, .85, fountain.z, .13, .7); cyl(landscape, ivory, fountain.x, 1.2, fountain.z, .42, .1);
+  staticColliders.push({ x: fountain.x, z: fountain.z, w: 2.5, d: 2.5 });
+  const fountainWater = new THREE.Group(); fountainWater.position.set(fountain.x, 0, fountain.z); root.add(fountainWater);
   const waterMat = new THREE.MeshBasicMaterial({ color: '#bceff0', transparent: true, opacity: .68 });
   for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; make(ballGeo, waterMat, fountainWater, Math.sin(a) * .3, 1.34, Math.cos(a) * .3, .028, .16, .028); }
-
   const urn = (parent: THREE.Object3D, x: number, z: number, size = .7) => {
     const g = new THREE.Group(); g.position.set(x, .08, z); g.scale.setScalar(size); parent.add(g);
     make(ballGeo, tile, g, 0, .42, 0, .34, .43, .34); cyl(g, tileLight, 0, .83, 0, .14, .3); torus(g, bronze, 0, .98, 0, .17, true);
     for (const side of [-1, 1]) torus(g, tile, side * .26, .72, 0, .16);
   };
-  const tree = (x: number, z: number, s: number, tall = false) => {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(s); landscape.add(g);
-    const trunk = cyl(g, wood, 0, 1.1, 0, tall ? .12 : .22, 2.2); trunk.rotation.z = .1;
-    if (tall) for (let j = 0; j < 3; j++) make(coneGeo, j % 2 ? olive : cypressMat, g, 0, 2.2 + j * .9, 0, .7 - j * .12, 2.8 - j * .2, .7 - j * .12);
+  const tree = (x: number, z: number, scale: number, tall = false) => {
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(scale); landscape.add(g);
+    const trunk = cyl(g, wood, 0, 1.3, 0, tall ? .12 : .22, 2.6); trunk.rotation.z = .1;
+    if (map.theme === 'desert') {
+      cyl(g, lightWood, .12, 2.15, 0, .13, 2.2);
+      for (let j = 0; j < 7; j++) { const a = j * Math.PI / 3.5; const frond = make(ballGeo, j % 2 ? olive : leafLight, g, Math.sin(a) * 1.03, 3.25, Math.cos(a) * 1.03, .27, .12, 1.32); frond.rotation.y = a; frond.rotation.x = .16; }
+    } else if (tall) for (let j = 0; j < 3; j++) make(coneGeo, j % 2 ? olive : cypressMat, g, 0, 2.2 + j * .9, 0, .7 - j * .12, 2.8 - j * .2, .7 - j * .12);
     else for (let j = 0; j < 7; j++) { const a = j * 2.4; beam(g, wood, new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(Math.sin(a) * .85, 2.7, Math.cos(a) * .75), .13); make(ballGeo, j % 2 ? olive : leafLight, g, Math.sin(a), 2.75 + random() * .5, Math.cos(a) * .8, 1.05, .65, .92); }
-    staticColliders.push({ x, z, w: .5 * s, d: .5 * s });
-    cyl(landscape, shadowStone, x, .04, z, .85 * s, .08);
+    staticColliders.push({ x, z, w: .5 * scale, d: .5 * scale });
+    cyl(landscape, shadowStone, x, .04, z, .85 * scale, .08);
   };
-  for (const [x, z, s] of [[-21, 15, 1.1], [19, 15, 1], [-21, -13, 1], [20.8, -12, 1.1], [-14, 14, .9], [15.5, -13.5, .85]]) tree(x, z, s);
-  for (const [x, z] of [[-23, 0], [23, -4], [-11.5, -15], [11.5, -15], [-7, 16.5], [6.6, 18.2], [-22.5, -17], [22.5, 9]]) tree(x, z, .95, true);
-  for (let i = 0; i < 65; i++) {
-    const x = (i % 2 ? -1 : 1) * (21.8 + random() * 2.3), z = -17 + random() * 36;
-    make(ballGeo, i % 3 ? olive : leafLight, landscape, x, .2, z, .28 + random() * .3, .23, .35);
-    if (i % 3 === 0) make(ballGeo, material('#b9828f'), landscape, x + .12, .42, z, .1, .12, .1);
+  const treeCount = map.theme === 'forest' ? 84 : map.theme === 'desert' ? 26 : map.theme === 'highland' ? 52 : 36;
+  for (let placed = 0, attempt = 0; placed < treeCount && attempt < 2500; attempt++) {
+    const x = bounds.minX + 3 + random() * (width - 6), z = bounds.minZ + 3 + random() * (depth - 6);
+    if (!openSpace(x, z, 1.65)) continue; tree(x, z, .85 + random() * .6, map.theme === 'highland' || random() < .3); placed++;
   }
-  // Low seaward parapets and a harbour stair make the plateau a believable place.
-  for (const [x, width] of [[-20, 6], [-11.5, 7], [-2.4, 7.5], [7, 6.5], [22, 3]]) {
-    box(landscape, stone, x, .43, 20.8, width, .86, .45); box(landscape, ivory, x, .92, 20.8, width + .15, .12, .64);
-    staticColliders.push({ x, z: 20.8, w: width, d: .6 });
+  for (let i = 0; i < 150; i++) {
+    const x = bounds.minX + 2 + random() * (width - 4), z = bounds.minZ + 2 + random() * (depth - 4);
+    if (!openSpace(x, z, .45)) continue;
+    make(ballGeo, i % 3 ? olive : leafLight, landscape, x, .15, z, .35 + random() * .4, .22, .4);
+    if (map.theme !== 'desert' && i % 3 === 0) make(ballGeo, material('#b9828f'), landscape, x + .12, .38, z, .1, .12, .1);
   }
-  for (const x of [-24.2, 24.2]) for (let i = 0; i < 6; i++) { box(landscape, stone, x, .3, -15.6 + i * 6.1, .38, .6, 4.7); }
-  for (let i = 0; i < 11; i++) box(landscape, stone, 15.8, -.17 - i * .36, 21.4 + i * .56, 3.5, .32, .9);
-  box(landscape, wood, 15.8, -4.1, 30.3, 3.6, .25, 8.9);
-  for (let i = 0; i < 23; i++) box(landscape, lightWood, 15.8, -3.95, 26 + i * .39, 3.58, .045, .28);
-  for (const x of [13.85, 17.75]) for (const z of [26.5, 30, 34]) cyl(landscape, darkWood, x, -3.95, z, .12, 2.2);
-  const ship = new THREE.Group(); ship.position.set(21.4, -4.7, 31.6); ship.rotation.y = -.24; root.add(ship);
-  make(ballGeo, wood, ship, 0, .35, 0, 1.25, .85, 3.4);
-  box(ship, darkWood, 0, .79, 0, 1.65, .12, 4.7);
-  for (const x of [-.91, .91]) box(ship, lightWood, x, .94, 0, .12, .32, 4.6);
-  cyl(ship, wood, 0, 2.5, -.25, .075, 4.8); box(ship, wood, 0, 4.25, -.25, 3.5, .09, .09);
-  const sailMat = new THREE.MeshStandardMaterial({ color: '#f3e3bd', roughness: .95, side: THREE.DoubleSide });
-  const sail = new THREE.Mesh(new THREE.PlaneGeometry(3.15, 2.6, 10, 10), sailMat); sail.position.set(0, 2.95, -.19); ship.add(sail);
-  const sailPos = sail.geometry.attributes.position; for (let i = 0; i < sailPos.count; i++) sailPos.setZ(i, .25 * Math.sin((sailPos.getX(i) / 3.15 + .5) * Math.PI)); sailPos.needsUpdate = true;
-  for (const side of [-1, 1]) for (let i = 0; i < 5; i++) { const oar = box(ship, lightWood, side * 1.35, .5, -1.7 + i * .75, 1.4, .045, .1); oar.rotation.z = side * -.15; }
-  batch(ship);
-
-  // The gate is defensive scenery; all twelve civic plots still begin as empty plans.
-  const gate = new THREE.Group(); gate.position.set(0, 0, -17.6); landscape.add(gate);
+  // Each biome has a distinct horizon and ground furniture in addition to its own layout.
+  for (let i = 0; i < 18; i++) {
+    const x = bounds.minX + 3 + i / 17 * (width - 6), z = bounds.maxZ + 1.5;
+    if (map.theme === 'coast') { box(landscape, stone, x, .43, z, 3.7, .86, .45); box(landscape, ivory, x, .92, z, 3.85, .12, .64); }
+    else if (map.theme === 'desert') make(ballGeo, stone, landscape, x, -.1, bounds.minZ - 5 - random() * 6, 6, 2 + random() * 2, 5);
+    else if (map.theme === 'highland') make(coneGeo, i % 2 ? shadowStone : stone, landscape, x, -1.5, bounds.minZ - 8 - random() * 8, 5 + random() * 4, 8 + random() * 10, 5 + random() * 4);
+  }
+  const dockX = bounds.maxX - 11, dockZ = bounds.maxZ + 2;
+  const ship = new THREE.Group(); ship.position.set(dockX + 5.6, -4.7, dockZ + 10.2); ship.rotation.y = -.24; ship.visible = map.theme === 'coast'; root.add(ship);
+  if (map.theme === 'coast') {
+    for (let i = 0; i < 11; i++) box(landscape, stone, dockX, -.17 - i * .36, dockZ + i * .56, 3.5, .32, .9);
+    box(landscape, wood, dockX, -4.1, dockZ + 9, 3.6, .25, 8.9);
+    for (let i = 0; i < 23; i++) box(landscape, lightWood, dockX, -3.95, dockZ + 4.6 + i * .39, 3.58, .045, .28);
+    for (const x of [dockX - 1.95, dockX + 1.95]) for (const z of [dockZ + 5.1, dockZ + 8.6, dockZ + 12.6]) cyl(landscape, darkWood, x, -3.95, z, .12, 2.2);
+    make(ballGeo, wood, ship, 0, .35, 0, 1.25, .85, 3.4); box(ship, darkWood, 0, .79, 0, 1.65, .12, 4.7);
+    for (const x of [-.91, .91]) box(ship, lightWood, x, .94, 0, .12, .32, 4.6);
+    cyl(ship, wood, 0, 2.5, -.25, .075, 4.8); box(ship, wood, 0, 4.25, -.25, 3.5, .09, .09);
+    const sailMat = new THREE.MeshStandardMaterial({ color: '#f3e3bd', roughness: .95, side: THREE.DoubleSide });
+    const sail = new THREE.Mesh(new THREE.PlaneGeometry(3.15, 2.6, 10, 10), sailMat); sail.position.set(0, 2.95, -.19); ship.add(sail);
+    const sailPos = sail.geometry.attributes.position; for (let i = 0; i < sailPos.count; i++) sailPos.setZ(i, .25 * Math.sin((sailPos.getX(i) / 3.15 + .5) * Math.PI)); sailPos.needsUpdate = true;
+    for (const side of [-1, 1]) for (let i = 0; i < 5; i++) { const oar = box(ship, lightWood, side * 1.35, .5, -1.7 + i * .75, 1.4, .045, .1); oar.rotation.z = side * -.15; }
+    batch(ship); sail.geometry.dispose();
+  }
+  const gate = new THREE.Group(); gate.position.set(gatePoint.x, 0, gatePoint.z); landscape.add(gate);
   for (const side of [-1, 1]) {
     const x = side * 4.2;
     box(gate, shadowStone, x, 1.5, 0, 2.5, 3, 2.35); box(gate, stone, x, 1.8, .03, 2.3, 3.3, 2.2);
@@ -154,22 +180,50 @@ export function createTroyWorld(): TroyWorld {
     for (const dx of [-.95, 0, .95]) for (const z of [-1, 1]) box(gate, stone, x + dx, 3.93, z, .48, .65, .48);
     for (let row = 0; row < 4; row++) box(gate, shadowStone, x, .6 + row * .72, 1.15, 2.3, .04, .025);
     box(gate, dark, x, 2.35, 1.17, .16, .8, .04);
-    staticColliders.push({ x, z: -17.6, w: 2.5, d: 2.5 });
+    staticColliders.push({ x: gatePoint.x + x, z: gatePoint.z, w: 2.5, d: 2.5 });
     const door = box(gate, wood, side * 2.95, 1.35, .6, .18, 2.7, 2.7); door.rotation.y = -side * .45;
     box(gate, stone, side * 11, .83, -.25, 10.6, 1.66, .7); box(gate, ivory, side * 11, 1.71, -.25, 10.8, .14, .9);
-    staticColliders.push({ x: side * 11, z: -17.85, w: 10.8, d: .9 });
+    staticColliders.push({ x: gatePoint.x + side * 11, z: gatePoint.z - .25, w: 10.8, d: .9 });
   }
   const banners: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>[] = [];
-  const bannerMat = new THREE.MeshStandardMaterial({ color: '#36747c', side: THREE.DoubleSide, roughness: .9 });
-  for (const x of [-4.2, 4.2]) {
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(.86, 1.55, 4, 8), bannerMat); flag.position.set(x, 2.15, -16.37); root.add(flag); banners.push(flag);
-    box(landscape, bronze, x, 2.99, -16.33, 1.05, .06, .07);
-    torus(landscape, bronze, x, 2.3, -16.31, .19);
+  const bannerMat = new THREE.MeshStandardMaterial({ color: palette.accent, side: THREE.DoubleSide, roughness: .9 });
+  for (const dx of [-4.2, 4.2]) {
+    const x = gatePoint.x + dx, z = gatePoint.z + 1.23;
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(.86, 1.55, 4, 8), bannerMat); flag.position.set(x, 2.15, z); root.add(flag); banners.push(flag);
+    box(landscape, bronze, x, 2.99, z + .04, 1.05, .06, .07); torus(landscape, bronze, x, 2.3, z + .06, .19);
   }
-  // North causeway supports the waiting horse above the sea.
-  box(landscape, stone, 0, -.16, -21.7, 7, .32, 9.5);
-  for (const x of [-3.2, 3.2]) box(landscape, shadowStone, x, .12, -23, .3, .25, 7);
-  for (const [x, z, s] of [[-16.5, 13, .9], [13.8, 12.9, .7], [-2.8, -14.4, .6], [3.4, 16.3, .8], [21.8, 4.8, .75]]) urn(landscape, x, z, s);
+  box(landscape, stone, gatePoint.x, -.16, gatePoint.z - 4.1, 7, .32, 9.5);
+  for (const dx of [-3.2, 3.2]) box(landscape, shadowStone, gatePoint.x + dx, .12, gatePoint.z - 5.4, .3, .25, 7);
+  for (const advisor of map.advisors) urn(landscape, advisor.x + .7, advisor.z, .65);
+
+  const landmarkSignals = new Map<string, THREE.Group>();
+  const beaconMaterial = new THREE.MeshBasicMaterial({ color: map.theme === 'desert' ? '#ffd27d' : map.theme === 'forest' ? '#c4f2a2' : '#b5e6ed', transparent: true, opacity: .28, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+  const beaconGeo = new THREE.CylinderGeometry(.12, .58, 9, 12, 1, true); sharedGeometries.add(beaconGeo);
+  map.landmarks.forEach((landmark, index) => {
+    const shrine = new THREE.Group(); shrine.position.set(landmark.x, 0, landmark.z); landscape.add(shrine);
+    cyl(shrine, stone, 0, .1, 0, 2.3, .2); torus(shrine, bronze, 0, .23, 0, 2.05, true).scale.z = .025;
+    if (map.theme === 'coast') {
+      for (let row = 0; row < 4; row++) cyl(shrine, row % 2 ? ivory : stone, 0, 1 + row * 1.15, -1.45, .72 - row * .1, 1.15);
+      cyl(shrine, bronze, 0, 4.8, -1.45, .62, .18); make(coneGeo, gold, shrine, 0, 5.13, -1.45, .35, .6, .35);
+    } else if (map.theme === 'desert') {
+      box(shrine, shadowStone, 0, 2.1, -1.45, .72, 4.2, .72); make(coneGeo, gold, shrine, 0, 4.5, -1.45, .52, .7, .52);
+      for (let row = 0; row < 5; row++) box(shrine, turquoise, 0, 1 + row * .6, -1.075, .28, .15, .025);
+      cyl(shrine, material('#529c96', .25), 0, .225, .1, 1.65, .025);
+    } else if (map.theme === 'forest') {
+      for (const x of [-1.3, 1.3]) { cyl(shrine, shadowStone, x, 1.25, -1.25, .3, 2.5); make(ballGeo, olive, shrine, x, 2.55, -1.25, .75, .3, .8); }
+      box(shrine, stone, 0, 2.55, -1.25, 3.05, .35, .85); make(ballGeo, leafLight, shrine, 0, 2.82, -1.25, 1.35, .18, .65);
+    } else {
+      for (let row = 0; row < 5; row++) make(ballGeo, row % 2 ? stone : shadowStone, shrine, Math.sin(row) * .1, .3 + row * .6, -1.45, .9 - row * .1, .45, .75 - row * .08);
+      box(shrine, wood, 0, 3.5, -1.45, .1, 1.3, .1); box(shrine, turquoise, .45, 3.9, -1.45, .9, .6, .055);
+    }
+    box(shrine, darkWood, 0, .47, .35, 1.15, .52, .7); box(shrine, bronze, 0, .76, .35, 1.22, .11, .78);
+    for (const x of [-.42, .42]) box(shrine, gold, x, .5, .715, .065, .55, .035);
+    const signal = new THREE.Group(); signal.name = `Unclaimed landmark ${landmark.id}`; signal.position.set(landmark.x, 0, landmark.z); root.add(signal); landmarkSignals.set(landmark.id, signal);
+    const beamMesh = make(beaconGeo, beaconMaterial, signal, 0, 4.8, 0); beamMesh.castShadow = false;
+    const crown = torus(signal, gold, 0, 4.5, 0, .5); crown.name = 'Exploration beacon crown';
+    for (let i = 0; i < 4; i++) make(ballGeo, gold, signal, Math.sin(i * Math.PI / 2) * .65, 4.5, Math.cos(i * Math.PI / 2) * .65, .08, .16, .08);
+    signal.userData.offset = index;
+  });
 
   // Azure survey lines, rubble and corner pegs communicate real, empty building lots.
   const plotLineMat = new THREE.MeshStandardMaterial({ color: '#73b9b5', emissive: '#337977', emissiveIntensity: .24, roughness: .8 });
@@ -188,6 +242,29 @@ export function createTroyWorld(): TroyWorld {
     box(g, plotRuneMat, 0, .19, 0, .64, .025, .06); box(g, plotRuneMat, 0, .19, 0, .06, .025, .64);
     batch(g);
   }
+  // Identical survey foundations use one instanced draw per material across the whole city.
+  // Instance transforms independently hide built lots; their logical plot groups stay addressable.
+  const foundationLayer = new THREE.Group(); foundationLayer.name = 'Instanced construction surveys'; root.add(foundationLayer);
+  const foundationInstances: THREE.InstancedMesh[] = [];
+  const template = plots.get(PLOTS[0]?.id);
+  const retainedFoundationGeometry = new Set<THREE.BufferGeometry>();
+  if (template) template.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const instances = new THREE.InstancedMesh(object.geometry, object.material, PLOTS.length);
+    instances.castShadow = true; instances.receiveShadow = true; instances.frustumCulled = false;
+    PLOTS.forEach((plot, index) => instances.setMatrixAt(index, new THREE.Matrix4().makeTranslation(plot.x, 0, plot.z)));
+    instances.instanceMatrix.needsUpdate = true; foundationLayer.add(instances); foundationInstances.push(instances); retainedFoundationGeometry.add(object.geometry);
+  });
+  plots.forEach(group => {
+    group.traverse(object => { if (object instanceof THREE.Mesh && !retainedFoundationGeometry.has(object.geometry)) object.geometry.dispose(); });
+    group.clear();
+  });
+  const setPlotAvailable = (id: string, available: boolean) => {
+    const group = plots.get(id); if (group) group.visible = available;
+    const index = PLOTS.findIndex(plot => plot.id === id); if (index < 0) return;
+    const transform = new THREE.Matrix4().makeTranslation(PLOTS[index].x, available ? 0 : -4, PLOTS[index].z);
+    foundationInstances.forEach(instances => { instances.setMatrixAt(index, transform); instances.instanceMatrix.needsUpdate = true; });
+  };
   // Pickups retain different physical silhouettes, as well as colour-coded halos.
   const resourceColor = { wood: '#eac494', stone: '#9ddce0', bronze: '#ffc466' };
   for (const node of RESOURCE_NODES) {
@@ -307,7 +384,7 @@ export function createTroyWorld(): TroyWorld {
   };
 
   // A fully articulated wooden gift. It has no downloaded model or hidden dependency.
-  const horse = new THREE.Group(); horse.name = 'The Trojan Horse'; horse.position.set(0, 0, -22); root.add(horse);
+  const horse = new THREE.Group(); horse.name = 'The Trojan Horse'; horse.position.set(gatePoint.x, 0, horseStartZ); root.add(horse);
   const horseBody = new THREE.Group(); horse.add(horseBody);
   const barrel = cyl(horseBody, wood, 0, 2.38, 0, .91, 2.85); barrel.rotation.x = Math.PI / 2; barrel.scale.z = .78;
   for (const side of [-1, 1]) {
@@ -363,11 +440,11 @@ export function createTroyWorld(): TroyWorld {
   const fireMat = new THREE.MeshBasicMaterial({ color: '#ff732c', transparent: true, opacity: .76, depthWrite: false });
   const smokeMat = new THREE.MeshStandardMaterial({ color: '#57443a', transparent: true, opacity: .58, roughness: 1, depthWrite: false });
   const sparksMat = new THREE.MeshBasicMaterial({ color: '#fff0b3', transparent: true, opacity: .82, depthWrite: false });
-  const volleys = new THREE.InstancedMesh(ballGeo, emberMat, 84); volleys.frustumCulled = false; disasterEffects.add(volleys);
-  const fires = new THREE.InstancedMesh(coneGeo, fireMat, 60); fires.frustumCulled = false; disasterEffects.add(fires);
-  const smoke = new THREE.InstancedMesh(ballGeo, smokeMat, 36); smoke.frustumCulled = false; disasterEffects.add(smoke);
+  const volleys = new THREE.InstancedMesh(ballGeo, emberMat, PLOTS.length * 7); volleys.frustumCulled = false; disasterEffects.add(volleys);
+  const fires = new THREE.InstancedMesh(coneGeo, fireMat, PLOTS.length * 5); fires.frustumCulled = false; disasterEffects.add(fires);
+  const smoke = new THREE.InstancedMesh(ballGeo, smokeMat, PLOTS.length * 3); smoke.frustumCulled = false; disasterEffects.add(smoke);
   const dustMat = new THREE.MeshBasicMaterial({ color: '#e6cda2', transparent: true, opacity: .24, depthWrite: false });
-  const dust = new THREE.InstancedMesh(ballGeo, dustMat, 36); dust.frustumCulled = false; disasterEffects.add(dust);
+  const dust = new THREE.InstancedMesh(ballGeo, dustMat, PLOTS.length * 3); dust.frustumCulled = false; disasterEffects.add(dust);
   const impactRings: THREE.Mesh[] = [];
   const shockMat = new THREE.MeshBasicMaterial({ color: '#ebc693', transparent: true, opacity: .28, depthWrite: false, side: THREE.DoubleSide });
   for (let i = 0; i < 3; i++) { const mesh = new THREE.Mesh(new THREE.RingGeometry(.95, 1, 80), shockMat); mesh.rotation.x = -Math.PI / 2; mesh.position.y = .09; disasterEffects.add(mesh); impactRings.push(mesh); }
@@ -375,21 +452,21 @@ export function createTroyWorld(): TroyWorld {
   const fissureMat = new THREE.MeshBasicMaterial({ color: '#34241c', side: THREE.DoubleSide });
   const crackMeshes: THREE.Mesh[] = [];
   for (let ray = 0; ray < 14; ray++) {
-    const angle = ray / 14 * Math.PI * 2; let x = 0, z = -7;
+    const angle = ray / 14 * Math.PI * 2; let x = centerX, z = centerZ - depth * .12;
     for (let section = 0; section < 6; section++) {
       const a = angle + Math.sin(ray * 4.7 + section * 2.1) * .33;
-      const nx = x + Math.sin(a) * 3.1, nz = z + Math.cos(a) * 3.1;
-      const mesh = box(cracks, fissureMat, (x + nx) / 2, .079, (z + nz) / 2, .11 + section * .025, .025, 3.2); mesh.rotation.y = a; mesh.userData.width = mesh.scale.x; mesh.userData.section = section; crackMeshes.push(mesh); x = nx; z = nz;
+      const nx = x + Math.sin(a) * depth / 10, nz = z + Math.cos(a) * depth / 10;
+      const mesh = box(cracks, fissureMat, (x + nx) / 2, .079, (z + nz) / 2, .11 + section * .025, .025, depth / 10 + .15); mesh.rotation.y = a; mesh.userData.width = mesh.scale.x; mesh.userData.section = section; crackMeshes.push(mesh); x = nx; z = nz;
     }
   }
   const looseSlabs: THREE.Mesh[] = [];
-  for (let i = 0; i < 18; i++) {
-    const side = i % 2 ? -1 : 1, z = -12 + Math.floor(i / 2) * 3.15;
+  for (let i = 0; i < 30; i++) {
+    const side = i % 2 ? -1 : 1, z = bounds.minZ + 8 + Math.floor(i / 2) * (depth - 16) / 15;
     const slab = box(disasterEffects, stone, side * 1.47, .06, z, 1.28, .18, 1.75); slab.userData.baseX = side * 1.47; slab.userData.baseZ = z; looseSlabs.push(slab);
   }
   const army = new THREE.Group(); army.visible = false; disasterEffects.add(army);
   const soldiers: THREE.Group[] = [];
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < PLOTS.length * 2; i++) {
     const soldier = new THREE.Group(); army.add(soldier); soldiers.push(soldier);
     box(soldier, i % 2 ? bronze : dark, 0, .78, 0, .38, .51, .26);
     make(ballGeo, bronze, soldier, 0, 1.16, 0, .2, .22, .2); box(soldier, tile, 0, 1.38, -.015, .045, .2, .26);
@@ -408,26 +485,28 @@ export function createTroyWorld(): TroyWorld {
     b.mesh.removeFromParent(); b.rubble.removeFromParent(); b.sparks.removeFromParent(); b.sparks.dispose();
   };
   const reset = () => {
-    buildings.forEach(disposeBuilding); buildings.clear(); plots.forEach(g => { g.visible = true; g.position.y = 0; });
+    buildings.forEach(disposeBuilding); buildings.clear(); plots.forEach((g, id) => { setPlotAvailable(id, true); g.position.y = 0; }); foundationLayer.position.y = 0;
     supplies.forEach(s => { s.available = true; s.object.visible = s.halo.visible = s.token.visible = true; });
-    horse.position.set(0, 0, -22); horse.rotation.set(0, 0, 0); horse.scale.setScalar(1); horseBody.position.y = 0; horseBody.rotation.set(0, 0, 0); horseLegs.forEach(l => l.rotation.x = 0); hatch.rotation.z = 0; furnaceMat.opacity = 0; horseLight.intensity = 0;
+    horse.position.set(gatePoint.x, 0, horseStartZ); horse.rotation.set(0, 0, 0); horse.scale.setScalar(1); horseBody.position.y = 0; horseBody.rotation.set(0, 0, 0); horseLegs.forEach(l => l.rotation.x = 0); hatch.rotation.z = 0; furnaceMat.opacity = 0; horseLight.intensity = 0;
+    landmarkSignals.forEach(signal => { signal.visible = true; });
     disasterEffects.visible = false; landscape.position.set(0, 0, 0); rebuildColliders(); runSeed = undefined; previousPhase = undefined;
   };
   const sync = (state: RunState) => {
     if ((runSeed !== undefined && runSeed !== state.seed) || (state.phase === 'ready' && previousPhase !== 'ready' && buildings.size > 0) || state.buildings.length < buildings.size) reset();
     runSeed = state.seed; previousPhase = state.phase;
+    const claimed = new Set(state.explored ?? []); landmarkSignals.forEach((signal, id) => { signal.visible = !claimed.has(id); });
     let changed = false;
     for (const placed of state.buildings) {
       if (buildings.has(placed.plotId)) continue;
       const p = PLOTS.find(plot => plot.id === placed.plotId); if (!p) continue;
-      const mesh = createBuilding(placed.kind); mesh.position.set(p.x, 0, p.z); mesh.scale.setScalar(.05); root.add(mesh); plots.get(p.id)!.visible = false;
+      const mesh = createBuilding(placed.kind); mesh.position.set(p.x, 0, p.z); mesh.scale.setScalar(.05); root.add(mesh); setPlotAvailable(p.id, false);
       const rubble = new THREE.Group(); rubble.position.set(p.x, 0, p.z); root.add(rubble); rubble.visible = false;
       for (let i = 0; i < 20; i++) {
         const debris = make(i % 4 ? boxGeo : ballGeo, i % 5 === 0 ? tile : i % 4 === 0 ? wood : stone, rubble, 0, 0, 0, .25 + random() * .6, .18 + random() * .32, .2 + random() * .65);
         debris.userData = { angle: i * 2.399 + p.x, distance: .5 + random() * 2.5, height: .3 + random() * 2.8, sizeX: debris.scale.x, sizeY: debris.scale.y, sizeZ: debris.scale.z };
       }
       const sparks = new THREE.InstancedMesh(ballGeo, sparksMat, 18); sparks.position.set(p.x, 0, p.z); sparks.frustumCulled = false; root.add(sparks);
-      buildings.set(p.id, { id: p.id, kind: placed.kind, mesh, rubble, sparks, x: p.x, z: p.z, age: 0, order: (p.z + 6) / 14 });
+      buildings.set(p.id, { id: p.id, kind: placed.kind, mesh, rubble, sparks, x: p.x, z: p.z, age: 0, order: districtOrder(p.z) });
       changed = true;
     }
     if (changed) rebuildColliders();
@@ -443,6 +522,7 @@ export function createTroyWorld(): TroyWorld {
       s.halo.scale.setScalar(marked ? 1.35 + Math.sin(time * 3) * .08 : 1);
       s.token.position.y = 1.85 + Math.sin(time * 2.3 + s.x) * .12; s.token.rotation.y = time * .65;
     }
+    landmarkSignals.forEach(signal => { signal.rotation.y = time * .22; const crown = signal.getObjectByName('Exploration beacon crown'); if (crown) { crown.position.y = 4.5 + Math.sin(time * 2 + signal.userData.offset) * .25; crown.rotation.y = time; } });
     plotRuneMat.opacity = .6 + Math.sin(time * 2) * .19;
     for (let n = 0; n < banners.length; n++) {
       const positions = banners[n].geometry.attributes.position;
@@ -458,9 +538,9 @@ export function createTroyWorld(): TroyWorld {
     const horseScale = 1 + growth * (targetScale - 1);
     horse.scale.setScalar(horseScale);
     const march = smooth((progress - .17) / .71);
-    const travel = ending === 'stampede' ? 35.5 : ending === 'ambush' ? 12 : ending === 'firestorm' ? 13.5 : 14;
-    horse.position.z = -22 + travel * march;
-    horse.position.x = finale && ending === 'stampede' ? Math.sin(progress * 10) * .65 * Math.sin(progress * Math.PI) : 0;
+    const travel = ending === 'stampede' ? depth - 8 : depth * .32;
+    horse.position.z = horseStartZ + travel * march;
+    horse.position.x = gatePoint.x + (finale && ending === 'stampede' ? Math.sin(progress * 10) * .65 * Math.sin(progress * Math.PI) : 0);
     const walking = finale && progress > .14 && progress < .9;
     const gaitTime = finale ? progress * 58 : time * .5;
     horse.position.y = walking ? Math.abs(Math.sin(gaitTime)) * (ending === 'earthquake' ? .36 : .11) * growth : 0;
@@ -487,8 +567,8 @@ export function createTroyWorld(): TroyWorld {
       }
       let onset = .25 + b.order * .43;
       if (ending === 'firestorm') onset = .27 + b.order * .34 + (b.x > 0 ? .045 : 0);
-      if (ending === 'ambush') onset = .29 + b.order * .35 + Math.abs(b.x) * .004;
-      if (ending === 'earthquake') onset = .24 + Math.abs(b.x) * .006 + b.order * .2;
+      if (ending === 'ambush') onset = .29 + b.order * .35 + Math.abs(b.x - centerX) / width * .09;
+      if (ending === 'earthquake') onset = .24 + Math.abs(b.x - centerX) / width * .12 + b.order * .2;
       const collapse = finale ? smooth((progress - onset) / (ending === 'earthquake' ? .37 : .26)) : 0;
       if (collapse > 0) {
         const side = b.x < 0 ? -1 : 1;
@@ -520,21 +600,21 @@ export function createTroyWorld(): TroyWorld {
     // Flames arc out of the opened belly before each district burns and falls.
     volleys.visible = ending === 'firestorm'; fires.visible = ending === 'firestorm'; smoke.visible = ending === 'firestorm';
     if (ending === 'firestorm') {
-      for (let i = 0; i < 84; i++) {
-        const plot = PLOTS[i % PLOTS.length], launch = .2 + Math.floor(i / 12) * .087 + (i % 12) * .002;
+      for (let i = 0; i < volleys.count; i++) {
+        const plot = PLOTS[i % PLOTS.length], launch = .2 + Math.floor(i / PLOTS.length) * .087 + (i % PLOTS.length) / PLOTS.length * .025;
         const life = (progress - launch) / .2, alive = life > 0 && life < 1;
-        const t = clamp(life), sourceZ = -18 + smooth((launch - .17) / .71) * 13.5;
+        const t = clamp(life), sourceZ = horseStartZ + 4 + smooth((launch - .17) / .71) * depth * .32;
         setInstance(volleys, i, -1.7 * (1 - t) + plot.x * t, 5.4 * (1 - t) + .8 * t + Math.sin(t * Math.PI) * (6 + i % 3), sourceZ * (1 - t) + plot.z * t, alive ? .12 + .05 * Math.sin(t * Math.PI) : 0);
       }
-      for (let i = 0; i < 60; i++) {
-        const plot = PLOTS[i % 12], delay = .25 + (plot.z + 6) / 14 * .34;
+      for (let i = 0; i < fires.count; i++) {
+        const plot = PLOTS[i % PLOTS.length], delay = .25 + districtOrder(plot.z) * .34;
         const strength = clamp((progress - delay) / .08) * (1 - smooth((progress - .83) / .17) * .72);
-        const angle = i * 2.4, radius = .4 + Math.floor(i / 12) * .28;
+        const angle = i * 2.4, radius = .4 + Math.floor(i / PLOTS.length) * .28;
         const flicker = .8 + Math.sin(time * 13 + i * 2) * .25;
         setInstance(fires, i, plot.x + Math.sin(angle) * radius, .7 + strength * flicker * 1.1, plot.z + Math.cos(angle) * radius, strength * .4, strength * flicker * (2.2 + i % 3 * .6), strength * .4);
       }
-      for (let i = 0; i < 36; i++) {
-        const plot = PLOTS[i % 12], burn = clamp((progress - .3 - (plot.z + 6) / 14 * .3) / .15), rise = (progress * 3 + i * .21) % 1;
+      for (let i = 0; i < smoke.count; i++) {
+        const plot = PLOTS[i % PLOTS.length], burn = clamp((progress - .3 - districtOrder(plot.z) * .3) / .15), rise = (progress * 3 + i * .21) % 1;
         setInstance(smoke, i, plot.x + Math.sin(i * 2.4) * (.3 + rise), .5 + rise * 7 * burn, plot.z + rise * 1.9, burn * (.25 + rise * .9), burn * (.4 + rise), burn * (.3 + rise * .9));
       }
       volleys.instanceMatrix.needsUpdate = fires.instanceMatrix.needsUpdate = smoke.instanceMatrix.needsUpdate = true;
@@ -542,12 +622,12 @@ export function createTroyWorld(): TroyWorld {
     // In the ambush, the horse disgorges an impossibly large, visible bronze army.
     army.visible = ending === 'ambush';
     if (ending === 'ambush') for (let i = 0; i < soldiers.length; i++) {
-      const soldier = soldiers[i], target = PLOTS[i % 12];
-      const travelTime = clamp((progress - .2 - i * .008) / .51);
+      const soldier = soldiers[i], target = PLOTS[i % PLOTS.length];
+      const travelTime = clamp((progress - .2 - i / soldiers.length * .19) / .51);
       const emerge = smooth(travelTime * 4); const lane = (i % 3 - 1) * .55;
-      soldier.visible = progress > .2 + i * .008;
-      soldier.position.set(-2.3 * (1 - travelTime) + (target.x + lane) * travelTime, Math.abs(Math.sin(time * 13 + i)) * .055, -14 * (1 - travelTime) + (target.z + lane) * travelTime);
-      soldier.rotation.y = Math.atan2(target.x + 2.3, target.z + 14) + (travelTime === 1 ? Math.sin(time * 4 + i) * .2 : 0);
+      soldier.visible = progress > .2 + i / soldiers.length * .19;
+      soldier.position.set(-2.3 * (1 - travelTime) + (target.x + lane) * travelTime, Math.abs(Math.sin(time * 13 + i)) * .055, (gatePoint.z + depth * .2) * (1 - travelTime) + (target.z + lane) * travelTime);
+      soldier.rotation.y = Math.atan2(target.x + 2.3, target.z - gatePoint.z - depth * .2) + (travelTime === 1 ? Math.sin(time * 4 + i) * .2 : 0);
       soldier.scale.setScalar(emerge * .91); soldier.rotation.z = Math.sin(time * 13 + i) * .065 * (1 - travelTime * .6);
     }
     // A hoof strike propagates through expanding rings and opening fault lines.
@@ -555,7 +635,7 @@ export function createTroyWorld(): TroyWorld {
     for (const slab of looseSlabs) {
       slab.visible = ending === 'earthquake';
       if (ending === 'earthquake') {
-        const breakTime = smooth((progress - .25 - (slab.userData.baseZ + 12) * .007) / .48);
+        const breakTime = smooth((progress - .25 - districtOrder(slab.userData.baseZ) * .2) / .48);
         slab.position.x = slab.userData.baseX + Math.sign(slab.userData.baseX) * breakTime * .28;
         slab.position.y = .06 - breakTime * .07 + Math.sin(progress * 80 + slab.userData.baseZ) * .15 * Math.sin(breakTime * Math.PI);
         slab.rotation.z = Math.sign(slab.userData.baseX) * breakTime * .14;
@@ -569,18 +649,18 @@ export function createTroyWorld(): TroyWorld {
     for (let i = 0; i < impactRings.length; i++) {
       const ring = impactRings[i]; ring.visible = ending === 'earthquake' || ending === 'stampede';
       const strike = (progress * (ending === 'earthquake' ? 4.5 : 6) + i / 3) % 1;
-      ring.scale.setScalar(1 + strike * (ending === 'earthquake' ? 32 : 15));
-      ring.position.z = ending === 'earthquake' ? -7 : horse.position.z + 2;
+      ring.scale.setScalar(1 + strike * (ending === 'earthquake' ? depth * .75 : width * .5));
+      ring.position.z = ending === 'earthquake' ? centerZ - depth * .12 : horse.position.z + 2;
       ring.visible = ring.visible && progress > .2 && progress < .98;
     }
-    for (let i = 0; i < 36; i++) {
-      const plot = PLOTS[i % 12], onset = .25 + (plot.z + 6) / 14 * (ending === 'earthquake' ? .2 : .43);
+    for (let i = 0; i < dust.count; i++) {
+      const plot = PLOTS[i % PLOTS.length], onset = .25 + districtOrder(plot.z) * (ending === 'earthquake' ? .2 : .43);
       const age = clamp((progress - onset) / .38), bloom = Math.sin(age * Math.PI);
       setInstance(dust, i, plot.x + Math.sin(i * 2.4) * age * 2, .15 + age * 2.6, plot.z + Math.cos(i * 2.4) * age * 2, bloom * (1 + i % 3 * .25), bloom * .8, bloom * 1.1);
     }
     dust.instanceMatrix.needsUpdate = true;
     // Even an unbuilt district is swallowed by the finale, leaving an unambiguous ruin.
-    plots.forEach(g => { if (g.visible) g.position.y = -smooth((progress - .5) / .4) * .3; });
+    foundationLayer.position.y = -smooth((progress - .5) / .4) * .6;
   };
 
   return {

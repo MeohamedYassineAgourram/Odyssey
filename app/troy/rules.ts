@@ -1,15 +1,28 @@
-import { BLUEPRINTS, ENDINGS, FINALE_DURATION, MISSIONS, PLOTS, RUN_DURATION } from './config';
+import { BLUEPRINTS, ENDINGS, FINALE_DURATION, MISSIONS, RUN_DURATION } from './config';
+import { createCityMap } from './maps';
 import type { BuildingKind, EndingKind, Material, Materials, Mission, MissionProgress, RunState } from './types';
 
 const MATERIALS: Material[] = ['wood', 'stone', 'bronze'];
 const PRODUCTION_INTERVAL = 8;
 const add = (value: number, amount: number) => Math.min(Number.MAX_SAFE_INTEGER, value + amount);
-const score = (state: RunState): RunState => ({ ...state, score: state.constructionScore + state.missionScore + state.combatScore + state.survivalScore });
+const score = (state: RunState): RunState => ({ ...state, score: state.constructionScore + state.missionScore + state.combatScore + state.survivalScore + state.expeditionScore });
+
+export function getRunMissions(state: Pick<RunState, 'seed' | 'stage'>): Mission[] {
+  const bonus: Mission[] = [
+    { id: 'explorer', title: 'Beyond the city walls', description: 'Discover two landmarks.', metric: 'explored', target: 2, reward: { wood: 6, stone: 5, bronze: 2 }, points: 130 },
+    { id: 'vanguard', title: 'Hold the frontier', description: 'Defeat eight raiders.', metric: 'kills', target: 8, reward: { wood: 5, stone: 6, bronze: 3 }, points: 150 },
+    { id: 'sacred-city', title: 'A city of wonders', description: 'Raise two temples.', metric: 'temple', target: 2, reward: { wood: 6, stone: 6, bronze: 3 }, points: 160 },
+    { id: 'caravan', title: 'Supply the expedition', description: 'Collect from eight deposits.', metric: 'gathered', target: 8, reward: { wood: 7, stone: 5, bronze: 3 }, points: 140 },
+  ];
+  const offset = ((state.seed >>> 3) + state.stage - 1) % bonus.length;
+  return [...MISSIONS, bonus[offset], bonus[(offset + 1) % bonus.length]].map(mission => ({ ...mission, reward: { ...mission.reward } }));
+}
 
 function metric(state: RunState, mission: Mission): number {
   if (mission.metric === 'buildings') return state.buildings.length;
   if (mission.metric === 'gathered') return state.gathered;
   if (mission.metric === 'kills') return state.kills;
+  if (mission.metric === 'explored') return state.explored.length;
   return state.buildings.filter(building => building.kind === mission.metric).length;
 }
 
@@ -17,7 +30,7 @@ function rewardMissions(state: RunState): RunState {
   const completed = new Set(state.completedMissions);
   const materials = { ...state.materials };
   let missionScore = state.missionScore;
-  for (const mission of MISSIONS) {
+  for (const mission of getRunMissions(state)) {
     if (completed.has(mission.id) || metric(state, mission) < mission.target) continue;
     completed.add(mission.id);
     missionScore += mission.points;
@@ -26,7 +39,7 @@ function rewardMissions(state: RunState): RunState {
   return score({ ...state, materials, missionScore, completedMissions: [...completed] });
 }
 
-export function createRun(seed: number, previousEnding?: EndingKind): RunState {
+export function createRun(seed: number, previousEnding?: EndingKind, stage = 1): RunState {
   const cleanSeed = Number.isFinite(seed) ? (Math.abs(Math.trunc(seed)) >>> 0) || 1 : 1;
   // An integer avalanche keeps adjacent seeds from cycling through the endings.
   let hash = cleanSeed;
@@ -35,9 +48,9 @@ export function createRun(seed: number, previousEnding?: EndingKind): RunState {
   hash = (hash ^ (hash >>> 15)) >>> 0;
   const endings = (Object.keys(ENDINGS) as EndingKind[]).filter(ending => ending !== previousEnding);
   return {
-    seed: cleanSeed, phase: 'playing', timeLeft: RUN_DURATION, health: 100,
+    seed: cleanSeed, stage: Number.isFinite(stage) ? Math.max(1, Math.min(10_000, Math.floor(stage))) : 1, phase: 'playing', timeLeft: RUN_DURATION, health: 100,
     materials: { wood: 3, stone: 2, bronze: 0 }, buildings: [], gathered: 0, kills: 0, completedMissions: [],
-    constructionScore: 0, missionScore: 0, combatScore: 0, survivalScore: 0, score: 0,
+    explored: [], expeditionScore: 0, constructionScore: 0, missionScore: 0, combatScore: 0, survivalScore: 0, score: 0,
     ending: endings[Math.floor(hash / 0x100000000 * endings.length)],
     finaleTime: 0, productionTime: 0, outcome: 'none',
   };
@@ -77,10 +90,11 @@ export function buildingCostReason(state: RunState, kind: BuildingKind, plotId?:
   if (state.phase !== 'playing') return 'Construction has ended.';
   const blueprint = BLUEPRINTS.find(item => item.id === kind);
   if (!blueprint) return 'Choose a known blueprint.';
+  const plots = createCityMap(state.stage, state.seed).plots;
   if (plotId !== undefined) {
-    if (!PLOTS.some(plot => plot.id === plotId)) return 'Choose a marked building plot.';
+    if (!plots.some(plot => plot.id === plotId)) return 'Choose a marked building plot.';
     if (state.buildings.some(building => building.plotId === plotId)) return 'This plot is already built.';
-  } else if (state.buildings.length >= PLOTS.length) return 'Every building plot is occupied.';
+  } else if (state.buildings.length >= plots.length) return 'Every building plot is occupied.';
   const missing = MATERIALS.filter(material => state.materials[material] < blueprint.cost[material])
     .map(material => `${blueprint.cost[material] - state.materials[material]} ${material === 'wood' ? 'timber' : material}`);
   return missing.length ? `Need ${missing.join(', ')}.` : null;
@@ -113,6 +127,15 @@ export function recordKill(state: RunState): RunState {
   return rewardMissions({ ...state, kills: add(state.kills, 1), combatScore: add(state.combatScore, 35) });
 }
 
+export function discoverLandmark(state: RunState, id: string): RunState {
+  if (state.phase !== 'playing' || state.explored.includes(id)) return state;
+  const landmark = createCityMap(state.stage, state.seed).landmarks.find(item => item.id === id);
+  if (!landmark) return state;
+  const materials = { ...state.materials };
+  for (const material of MATERIALS) materials[material] = add(materials[material], landmark.reward[material]);
+  return rewardMissions({ ...state, materials, explored: [...state.explored, id], expeditionScore: state.expeditionScore + 75 });
+}
+
 export function takeDamage(state: RunState, amount: number): RunState {
   if (state.phase !== 'playing' || !Number.isFinite(amount) || amount <= 0) return state;
   const health = Math.max(0, state.health - amount);
@@ -120,5 +143,5 @@ export function takeDamage(state: RunState, amount: number): RunState {
 }
 
 export function getMissions(state: RunState): MissionProgress[] {
-  return MISSIONS.map(mission => ({ ...mission, reward: { ...mission.reward }, progress: Math.min(mission.target, metric(state, mission)), completed: state.completedMissions.includes(mission.id) }));
+  return getRunMissions(state).map(mission => ({ ...mission, progress: Math.min(mission.target, metric(state, mission)), completed: state.completedMissions.includes(mission.id) }));
 }
